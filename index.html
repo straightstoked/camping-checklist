@@ -806,7 +806,7 @@ function App(){
   const [myName,   setMyName]   = useState(()=>lsGet("bc_name",null));
   const [inv,      setInv]      = useState(()=>lsGet("bc_inv",DEF_INV));
   const [friends,  setFriends]  = useState([]);
-  const [tmpls,    setTmpls]    = useState(()=>lsGet("bc_tmpls",[]));
+  const [tmpls,    setTmpls]    = useState([]);
   const [trips,    setTrips]    = useState([]);
   const [chats,    setChats]    = useState({});
   const [activeId, setActiveId] = useState(null);
@@ -826,9 +826,13 @@ function App(){
   const [showAC,   setShowAC]   = useState(false);
   const [showNT,   setShowNT]   = useState(false);
   const [showTmpl, setShowTmpl] = useState(false);
+  const [showNewTmpl, setShowNewTmpl] = useState(false);
+  const [newTmplName, setNewTmplName] = useState("");
   const [tripMembers, setTripMembers] = useState([]); // friend ids selected for new trip
   const [tripGear,    setTripGear]    = useState({}); // {itemId: true} selected gear items
   const [tripCatOpen, setTripCatOpen] = useState({}); // {catId: bool} expanded cats in create panel
+  const [tripYear,    setTripYear]    = useState(()=>new Date().getFullYear().toString());
+  const [tripDates,   setTripDates]   = useState(""); // optional date range string
   const fileRef  = useRef();
   const chatBtm  = useRef();
 
@@ -908,6 +912,14 @@ function App(){
     });
   },[fbReady]);
 
+  // Live templates — stored in Firebase so they persist
+  useEffect(()=>{
+    if(!fbReady)return;
+    return fOn("templates",data=>{
+      setTmpls(data?Object.values(data):[]);
+    });
+  },[fbReady]);
+
   // Live chat for active trip
   useEffect(()=>{
     if(!fbReady||!activeId)return;
@@ -919,7 +931,6 @@ function App(){
 
   // Persist local data
   useEffect(()=>lsSet("bc_inv",inv),[inv]);
-  useEffect(()=>lsSet("bc_tmpls",tmpls),[tmpls]);
 
   const activeTrip = useMemo(()=>trips.find(t=>t.id===activeId)||null,[trips,activeId]);
   const tripItems  = useMemo(()=>activeTrip?Object.values(activeTrip.items):[],[activeTrip]);
@@ -1025,24 +1036,36 @@ function App(){
       });
     });
     const t={id:gid(),name,color,createdAt:ts(),
-      members: tripMembers.length>0 ? tripMembers : friends.map(f=>f.id),
+      year: tmpl?String(new Date().getFullYear()):tripYear,
+      dates: tmpl?"":tripDates,
+      members: tripMembers.length>0 ? tripMembers : (tmpl?.members||friends.map(f=>f.id)),
       items};
     await fSet(`trips/${t.id}`,t);
     navigate("trip",t.id);
     setNewTrip(""); setTripMembers([]); setTripGear({}); setTripCatOpen({});
-    setShowNT(false); setShowTmpl(false);
+    setTripDates(""); setTripYear(new Date().getFullYear().toString());
+    setShowNT(false); setShowTmpl(false); setShowNewTmpl(false);
     notify(`"${name}" created!`);
   };
   const deleteTrip = async id=>{ await fDel(`trips/${id}`); if(activeId===id) navigate("trips"); notify("Trip deleted"); };
   const saveTemplate = ()=>{
-    if(!activeTrip)return;
+    if(!activeTrip||!fbReady)return;
     const cats=[...new Set(tripItems.map(i=>i.catId))].map(cid=>({
       id:cid, name:tripItems.find(i=>i.catId===cid).catName,
       icon:tripItems.find(i=>i.catId===cid).catIcon||"📦",
       items:tripItems.filter(i=>i.catId===cid).map(i=>({id:gid(),name:i.name,qty:i.qty,weight:i.weight||""})),
     }));
-    setTmpls(p=>[...p,{id:gid(),name:activeTrip.name,cats}]);
+    const id=gid();
+    const tmpl={id,name:activeTrip.name,cats,
+      members:activeTrip.members||[],
+      createdAt:ts(),fromTrip:activeTrip.id};
+    fUpd("templates",{[id]:tmpl});
     notify("Saved as template!");
+  };
+  const deleteTemplate = id=>{ fDel(`templates/${id}`); notify("Template deleted"); };
+  const createTmplFromScratch = ()=>{
+    // Navigate to templates page with new-template form open
+    navigate("templates"); setShowNewTmpl(true);
   };
   const addTripItem=(catId,catName,catIcon)=>{
     const k=`t-${catId}`, n=(nim[k]||"").trim(); if(!n||!fbReady)return;
@@ -1067,7 +1090,7 @@ function App(){
         <span style={{fontFamily:"var(--serif)",fontSize:17,letterSpacing:.3}}>Base Camp</span>
       </div>
       <div style={{padding:"0 10px",flex:1}}>
-        {[["home","🏠","Home"],["inventory","🎒","My Gear"],["friends","👥","Friends"],["trips","🗺️","Trips"]].map(([v,ic,lb])=>(
+        {[["home","🏠","Home"],["inventory","🎒","My Gear"],["friends","👥","Friends"],["trips","🗺️","Trips"],["templates","📋","Templates"]].map(([v,ic,lb])=>(
           <button key={v} onClick={()=>navigate(v)}
             style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
               borderRadius:10,border:"none",textAlign:"left",fontSize:14,fontWeight:500,marginBottom:2,
@@ -1076,21 +1099,27 @@ function App(){
             <span style={{fontSize:16,width:20,textAlign:"center"}}>{ic}</span>{lb}
           </button>
         ))}
-        {trips.length>0&&(
-          <>
-            <div className="slabel" style={{padding:"14px 12px 5px"}}>TRIPS</div>
-            {trips.map(t=>(
-              <button key={t.id} onClick={()=>goTrip(t.id)}
-                style={{width:"100%",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",
-                  borderRadius:10,border:"none",textAlign:"left",fontSize:13,fontWeight:500,marginBottom:2,
-                  background:activeId===t.id?"var(--bg)":"transparent",
-                  color:activeId===t.id?t.color:"var(--text2)",transition:"all .14s"}}>
-                <span style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
-                <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</span>
-              </button>
-            ))}
-          </>
-        )}
+        {trips.length>0&&(()=>{
+          // Group trips by year
+          const byYear={};
+          trips.forEach(t=>{ const y=t.year||"Other"; if(!byYear[y])byYear[y]=[]; byYear[y].push(t); });
+          const years=Object.keys(byYear).sort((a,b)=>b-a);
+          return years.map(year=>(
+            <React.Fragment key={year}>
+              <div className="slabel" style={{padding:"14px 12px 5px"}}>{year}</div>
+              {byYear[year].map(t=>(
+                <button key={t.id} onClick={()=>goTrip(t.id)}
+                  style={{width:"100%",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",
+                    borderRadius:10,border:"none",textAlign:"left",fontSize:13,fontWeight:500,marginBottom:2,
+                    background:activeId===t.id?"var(--bg)":"transparent",
+                    color:activeId===t.id?t.color:"var(--text2)",transition:"all .14s"}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+                  <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</span>
+                </button>
+              ))}
+            </React.Fragment>
+          ));
+        })()}
       </div>
       <div style={{padding:"12px 18px 20px",borderTop:"1px solid var(--border)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1158,7 +1187,7 @@ function App(){
             <button className="btn-icon" title="Home" onClick={()=>navigate("home")} style={{fontSize:14,flexShrink:0}}>🏠</button>
           )}
           <span style={{fontFamily:"var(--serif)",fontSize:16,flex:1,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-            {activeTrip?activeTrip.name:view==="home"?"Base Camp":view==="inventory"?"My Gear":view==="friends"?"Friends":"Trips"}
+            {activeTrip?activeTrip.name:view==="home"?"Base Camp":view==="inventory"?"My Gear":view==="friends"?"Friends":view==="templates"?"Templates":"Trips"}
           </span>
           <TripTabs/>
           {!online&&(
@@ -1180,10 +1209,10 @@ function App(){
                 {ic:"🎒",v:inv.reduce((a,c)=>a+c.items.length,0),lb:"Gear items",  cl:"var(--blue)",   dest:"inventory"},
                 {ic:"🗺️",v:trips.length,                          lb:"Trips",       cl:"var(--accent)", dest:"trips"},
                 {ic:"👥",v:friends.length,                        lb:"Friends",     cl:"var(--warn)",   dest:"friends"},
-                {ic:"📋",v:tmpls.length,                          lb:"Templates",   cl:"var(--purple)", dest:"trips"},
+                {ic:"📋",v:tmpls.length,                          lb:"Templates",   cl:"var(--purple)", dest:"templates"},
               ].map(s=>(
                 <div key={s.lb} className="card fi" style={{padding:"16px 16px",cursor:"pointer"}}
-                  onClick={()=>{ navigate(s.dest); if(s.lb==="Templates") setShowTmpl(true); }}>
+                  onClick={()=>{ navigate(s.dest); }}>
                   <div style={{fontSize:22,marginBottom:6}}>{s.ic}</div>
                   <div style={{fontSize:26,fontWeight:700,color:s.cl,lineHeight:1}}>{s.v}</div>
                   <div style={{fontSize:12,color:"var(--text3)",marginTop:3}}>{s.lb}</div>
@@ -1219,7 +1248,7 @@ function App(){
             <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
               <button className="btn btn-green" onClick={()=>{navigate("trips");setShowNT(true);}}>+ New Trip</button>
               <button className="btn btn-ghost" onClick={()=>navigate("inventory")}>Manage Gear</button>
-              {tmpls.length>0&&<button className="btn btn-ghost" onClick={()=>{navigate("trips");setShowTmpl(true);}}>📋 Templates</button>}
+              {tmpls.length>0&&<button className="btn btn-ghost" onClick={()=>navigate("templates")}>📋 Templates</button>}
             </div>
           </div>
         )}
@@ -1300,7 +1329,7 @@ function App(){
           <div style={{padding:"20px 16px 60px",maxWidth:680,margin:"0 auto"}} className="fi">
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:20,flexWrap:"wrap"}}>
               <span style={{fontFamily:"var(--serif)",fontSize:24,flex:1}}>Trips</span>
-              {tmpls.length>0&&<button className="btn btn-ghost btn-sm" onClick={()=>setShowTmpl(p=>!p)}>📋 Templates</button>}
+              {tmpls.length>0&&<button className="btn btn-ghost btn-sm" onClick={()=>navigate("templates")}>📋 Templates</button>}
               <button className="btn btn-blue btn-sm" onClick={()=>setShowNT(p=>!p)}>+ New Trip</button>
             </div>
 
@@ -1444,25 +1473,9 @@ function App(){
                     {tripMembers.length>0&&` · ${tripMembers.length} ${tripMembers.length===1?"person":"people"}`}
                   </button>
                   <button className="btn btn-ghost btn-sm"
-                    onClick={()=>{ setShowNT(false); setTripMembers([]); setTripGear({}); setTripCatOpen({}); }}>
+                    onClick={()=>{ setShowNT(false); setTripMembers([]); setTripGear({}); setTripCatOpen({}); setTripDates(""); setTripYear(new Date().getFullYear().toString()); }}>
                     Cancel
                   </button>
-                </div>
-              </div>
-            )}
-
-            {showTmpl&&tmpls.length>0&&(
-              <div style={{marginBottom:18}} className="fi">
-                <div className="slabel">TEMPLATES</div>
-                <div className="card">
-                  {tmpls.map(t=>(
-                    <div key={t.id} className="crow">
-                      <span style={{fontSize:14,fontWeight:500,flex:1}}>📋 {t.name}</span>
-                      <button className="btn btn-ghost btn-sm" style={{marginRight:6}} onClick={()=>createTrip(t)}>Use</button>
-                      <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer"}}
-                        onClick={()=>setTmpls(p=>p.filter(x=>x.id!==t.id))}>×</button>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
@@ -1487,6 +1500,7 @@ function App(){
                         <div style={{flex:1}}>
                           <div style={{fontSize:17,fontWeight:700,marginBottom:3}}>{t.name}</div>
                           <div style={{fontSize:12,color:"var(--text3)"}}>
+                            {t.year&&<span style={{fontWeight:600,color:"var(--text2)",marginRight:6}}>{t.year}{t.dates?` · ${t.dates}`:""}</span>}
                             {its.length} items · {its.filter(i=>i.packed).length} packed
                             {buy>0&&<span style={{color:"var(--warn)"}}> · {buy} to buy</span>}
                           </div>
@@ -1555,14 +1569,199 @@ function App(){
             )}
           </div>
         )}
+        {/* ════ TEMPLATES ════ */}
+        {view==="templates"&&(
+          <div style={{padding:"20px 16px 60px",maxWidth:680,margin:"0 auto"}} className="fi">
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"var(--serif)",fontSize:24,flex:1}}>Templates</span>
+              <button className="btn btn-blue btn-sm" onClick={()=>setShowNewTmpl(p=>!p)}>+ New Template</button>
+            </div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:20,lineHeight:1.6}}>
+              Reusable trip setups with gear and crew pre-selected. Create a trip from any template in one tap.
+            </div>
+
+            {/* Create new template from scratch */}
+            {showNewTmpl&&(
+              <div className="card fi" style={{marginBottom:16,padding:16}}>
+                <div style={{fontSize:13,fontWeight:500,color:"var(--text2)",marginBottom:10}}>New template name</div>
+                <input className="inp" placeholder="e.g. Coachella Annual, Car Camping Weekend…"
+                  autoFocus value={newTmplName} onChange={e=>setNewTmplName(e.target.value)}
+                  style={{marginBottom:14}}/>
+
+                {/* Gear selector — same pattern as trip creation */}
+                <div style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                    <span style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",flex:1}}>
+                      GEAR {Object.keys(tripGear).length>0?`(${Object.keys(tripGear).length} selected)`:"(all — tap to narrow)"}
+                    </span>
+                    {Object.keys(tripGear).length>0&&(
+                      <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",cursor:"pointer",fontWeight:500}}
+                        onClick={()=>setTripGear({})}>Clear</button>
+                    )}
+                  </div>
+                  {inv.map(cat=>{
+                    const catOpen=tripCatOpen[`tmpl-${cat.id}`]===true;
+                    const selCount=cat.items.filter(i=>tripGear[i.id]).length;
+                    const allSel=cat.items.length>0&&selCount===cat.items.length;
+                    return(
+                      <div key={cat.id} style={{marginBottom:5,border:"1px solid var(--border)",borderRadius:9,overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",background:"var(--surf2)",padding:"8px 11px",gap:7}}>
+                          <button onClick={()=>setTripCatOpen(p=>({...p,[`tmpl-${cat.id}`]:!catOpen}))}
+                            style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text3)",padding:0,width:16,flexShrink:0}}>
+                            {catOpen?"▼":"▶"}
+                          </button>
+                          <span style={{fontSize:13,fontWeight:600,color:"var(--text)",flex:1,cursor:"pointer"}}
+                            onClick={()=>setTripCatOpen(p=>({...p,[`tmpl-${cat.id}`]:!catOpen}))}>
+                            {cat.icon} {cat.name}
+                          </span>
+                          <span style={{fontSize:11,color:selCount>0?"var(--blue)":"var(--text3)",fontWeight:selCount>0?600:400}}>
+                            {Object.keys(tripGear).length===0?"all":selCount===0?"none":`${selCount}/${cat.items.length}`}
+                          </span>
+                          <button onClick={()=>{
+                            if(allSel) setTripGear(p=>{ const n={...p}; cat.items.forEach(i=>delete n[i.id]); return n; });
+                            else setTripGear(p=>{ const n={...p}; cat.items.forEach(i=>n[i.id]=true); return n; });
+                          }} style={{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,border:"1.5px solid",cursor:"pointer",flexShrink:0,
+                            borderColor:allSel?"var(--danger)":"var(--blue)",color:allSel?"var(--danger)":"var(--blue)",background:"transparent"}}>
+                            {allSel?"✕ None":"✓ All"}
+                          </button>
+                        </div>
+                        {catOpen&&(
+                          <div style={{background:"var(--surface)"}}>
+                            {cat.items.map(item=>{
+                              const sel=tripGear[item.id]===true;
+                              return(
+                                <label key={item.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 13px",
+                                  borderTop:"1px solid var(--border)",cursor:"pointer",background:sel?"#F0F6FF":"transparent"}}>
+                                  <input type="checkbox" checked={sel}
+                                    onChange={()=>setTripGear(p=>{ const n={...p}; if(n[item.id]) delete n[item.id]; else n[item.id]=true; return n; })}
+                                    style={{width:14,height:14,accentColor:"var(--blue)",flexShrink:0}}/>
+                                  <span style={{fontSize:13,color:sel?"var(--text)":"var(--text2)",flex:1,fontWeight:sel?500:400}}>{item.name}</span>
+                                  {item.qty>1&&<span style={{fontSize:11,color:"var(--text3)"}}>×{item.qty}</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Member selector */}
+                {friends.length>0&&(
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:8}}>
+                      DEFAULT CREW
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {friends.map(f=>{
+                        const sel=tripMembers.includes(f.id);
+                        return(
+                          <button key={f.id} onClick={()=>setTripMembers(p=>sel?p.filter(x=>x!==f.id):[...p,f.id])}
+                            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 11px 5px 6px",
+                              borderRadius:20,border:"1.5px solid",cursor:"pointer",fontSize:12,fontWeight:500,
+                              borderColor:sel?"var(--blue)":"var(--border)",
+                              background:sel?"#EEF5FF":"var(--surf2)",
+                              color:sel?"var(--blue)":"var(--text2)"}}>
+                            <Av name={f.name} size={18}/>{f.name}{sel&&" ✓"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn btn-blue" style={{fontSize:13,padding:"8px 18px"}}
+                    disabled={!newTmplName.trim()}
+                    onClick={()=>{
+                      if(!newTmplName.trim()||!fbReady)return;
+                      const id=gid();
+                      const cats=inv.filter(cat=>
+                        Object.keys(tripGear).length===0||cat.items.some(i=>tripGear[i.id])
+                      ).map(cat=>({
+                        id:cat.id,name:cat.name,icon:cat.icon,
+                        items: Object.keys(tripGear).length===0
+                          ? cat.items.map(i=>({id:gid(),name:i.name,qty:i.qty,weight:i.weight||""}))
+                          : cat.items.filter(i=>tripGear[i.id]).map(i=>({id:gid(),name:i.name,qty:i.qty,weight:i.weight||""})),
+                      }));
+                      const tmpl={id,name:newTmplName.trim(),cats,members:tripMembers,createdAt:ts()};
+                      fUpd("templates",{[id]:tmpl});
+                      setNewTmplName(""); setTripGear({}); setTripMembers([]); setTripCatOpen({});
+                      setShowNewTmpl(false); notify("Template saved!");
+                    }}>
+                    💾 Save Template
+                  </button>
+                  <button className="btn btn-ghost btn-sm"
+                    onClick={()=>{ setShowNewTmpl(false); setNewTmplName(""); setTripGear({}); setTripMembers([]); setTripCatOpen({}); }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Templates list */}
+            {tmpls.length===0&&!showNewTmpl?(
+              <div style={{textAlign:"center",padding:"48px 20px",color:"var(--text3)"}}>
+                <div style={{fontSize:44,marginBottom:10}}>📋</div>
+                <div style={{fontSize:15,color:"var(--text2)",marginBottom:4}}>No templates yet</div>
+                <div style={{fontSize:13}}>Create one above, or save any trip as a template from inside the trip.</div>
+              </div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                {tmpls.map(tmpl=>{
+                  const memberNames=friends.filter(f=>(tmpl.members||[]).includes(f.id)).map(f=>f.name);
+                  const itemCount=(tmpl.cats||[]).reduce((a,c)=>a+(c.items||[]).length,0);
+                  return(
+                    <div key={tmpl.id} className="card fi">
+                      <div style={{padding:"14px 16px"}}>
+                        <div style={{display:"flex",alignItems:"flex-start",marginBottom:8}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:16,fontWeight:700,color:"var(--text)",marginBottom:3}}>📋 {tmpl.name}</div>
+                            <div style={{fontSize:12,color:"var(--text3)"}}>
+                              {itemCount} items · {(tmpl.cats||[]).length} categories
+                              {memberNames.length>0&&` · ${memberNames.length} people`}
+                            </div>
+                          </div>
+                          <button style={{background:"none",border:"none",color:"var(--danger)",fontSize:17,cursor:"pointer",lineHeight:1,padding:"0 0 0 8px"}}
+                            onClick={()=>{ if(confirm(`Delete template "${tmpl.name}"?`)) deleteTemplate(tmpl.id); }}>×</button>
+                        </div>
+                        {memberNames.length>0&&(
+                          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+                            {memberNames.map(n=>(
+                              <span key={n} style={{display:"flex",alignItems:"center",gap:4,background:"#EEF5FF",
+                                borderRadius:20,padding:"2px 9px 2px 5px",fontSize:11,color:"var(--blue)"}}>
+                                <Av name={n} size={14}/>{n}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                          <button className="btn btn-green btn-sm"
+                            onClick={()=>{ createTrip(tmpl); }}>
+                            ⛺ Create trip from this
+                          </button>
+                          <span style={{fontSize:11,color:"var(--text3)"}}>
+                            Saved {ago(tmpl.createdAt||ts())}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ════ TRIP CHECKLIST ════ */}
         {view==="trip"&&activeTrip&&(
           <div style={{padding:"16px 16px 60px",maxWidth:720,margin:"0 auto"}} className="fi">
             {/* Actions */}
-            <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>navigate("trips")}>← Trips</button>
               <button className="btn btn-ghost btn-sm" onClick={saveTemplate}>📋 Save as template</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>{navigator.clipboard?.writeText(shareUrl);notify("Link copied!");}}>🔗 Share link</button>
-              <button className="btn btn-ghost btn-sm" onClick={()=>navigate("trips")}>← Trips</button>
             </div>
 
             {/* Members — compact display with collapsible editor */}
