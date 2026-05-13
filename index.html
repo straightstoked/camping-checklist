@@ -172,7 +172,8 @@ const {useState,useEffect,useRef,useMemo,useCallback} = React;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const COLORS   = ["#34C759","#007AFF","#FF9500","#FF2D55","#AF52DE","#5AC8FA","#FF6B35","#30B0C7"];
-const ADMIN_NAME = "Jose"; // ← change this to your name
+const ADMIN_NAMES = ["Jose", "Sandy"]; // ← add/remove admin names here
+const ADMIN_NAME  = ADMIN_NAMES[0]; // kept for backwards compat
 const gid      = () => Math.random().toString(36).slice(2,10);
 const ts       = () => Date.now();
 const ago      = t => { const d=ts()-t,m=~~(d/6e4),h=~~(m/60),dy=~~(h/24); return dy?`${dy}d ago`:h?`${h}h ago`:m?`${m}m ago`:"just now"; };
@@ -565,12 +566,16 @@ function App(){
   const notify = m => { setToast(m); setTimeout(()=>setToast(null),2500); };
   const goTrip = (id,v="trip") => navigate(v,id);
 
-  // Firebase ready — check flag first so app loads without waiting
+  // Firebase ready — check flag first, then poll every 50ms so it's near-instant
   useEffect(()=>{
     if(window.__fb && window.__fbReady){ setFbReady(true); return; }
-    const h=()=>setFbReady(true);
+    // Poll rapidly in case the module event already fired before React mounted
+    const poll = setInterval(()=>{
+      if(window.__fb && window.__fbReady){ setFbReady(true); clearInterval(poll); }
+    }, 50);
+    const h=()=>{ setFbReady(true); clearInterval(poll); };
     window.addEventListener("fb-ready",h);
-    return ()=>window.removeEventListener("fb-ready",h);
+    return ()=>{ window.removeEventListener("fb-ready",h); clearInterval(poll); };
   },[]);
 
   // URL deep-link & history navigation
@@ -785,6 +790,18 @@ function App(){
     </div>
   );
 
+  // Show loading screen if name is set but Firebase not ready yet
+  // (happens when user taps their name before the Firebase module finishes)
+  if(myName && !fbReady) return(
+    <div style={{minHeight:"100vh",background:"var(--bg)",display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",gap:16}}>
+      <div style={{fontSize:44}}>⛺</div>
+      <div style={{width:36,height:36,border:"3px solid var(--border)",borderTopColor:"var(--blue)",
+        borderRadius:"50%",animation:"spin .7s linear infinite"}}/>
+      <div style={{fontSize:14,color:"var(--text3)",letterSpacing:.3}}>Loading camp…</div>
+    </div>
+  );
+
   if(!myName) return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:"var(--bg)"}}>
       <div className="card pop" style={{padding:"36px 30px",maxWidth:400,width:"100%",textAlign:"center"}}>
@@ -801,20 +818,24 @@ function App(){
               {/* Admin quick-tap at top */}
               <div style={{marginBottom:18,textAlign:"center"}}>
                 <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>ADMIN</div>
-                <button onClick={()=>confirm(ADMIN_NAME)}
-                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px 8px 10px",
-                    borderRadius:24,border:"2px solid var(--blue)",background:"#EEF5FF",
-                    cursor:"pointer",fontSize:14,fontWeight:600,color:"var(--blue)"}}>
-                  <Av name={ADMIN_NAME} size={28}/>
-                  {ADMIN_NAME}
-                </button>
+                <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                  {ADMIN_NAMES.map(name=>(
+                    <button key={name} onClick={()=>confirm(name)}
+                      style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px 8px 10px",
+                        borderRadius:24,border:"2px solid var(--blue)",background:"#EEF5FF",
+                        cursor:"pointer",fontSize:14,fontWeight:600,color:"var(--blue)"}}>
+                      <Av name={name} size={28}/>
+                      {name}
+                    </button>
+                  ))}
+                </div>
               </div>
               {/* Friends chips */}
               {friends.length>0&&(
                 <div style={{marginBottom:18}}>
                   <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10,textAlign:"center"}}>YOUR CREW</div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
-                    {friends.filter(f=>f.name!==ADMIN_NAME).map(f=>(
+                    {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).map(f=>(
                       <button key={f.id} onClick={()=>confirm(f.name)}
                         style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px 6px 8px",
                           borderRadius:20,border:"1.5px solid var(--border)",background:"var(--surf2)",
