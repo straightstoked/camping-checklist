@@ -27,23 +27,16 @@
 <script>
   (function(){
     var cfg = window.__basecampConfig;
-    if(!cfg) return;
-    var app = firebase.initializeApp(cfg);
-    var db  = firebase.database();
-    // Wrap compat API to match the modular API shape the app expects
-    window.__fb = {
-      db:      db,
-      ref:     function(db,p){ return db.ref(p); },
-      set:     function(r,v){ return r.set(v); },
-      get:     function(r){ return r.get(); },
-      update:  function(r,v){ return r.update(v); },
-      push:    function(r,v){ return r.push(v); },
-      onValue: function(r,cb){ r.on("value",function(s){ cb(s.exists()?s.val():null); }); },
-      off:     function(r){ r.off(); },
-      remove:  function(r){ return r.remove(); },
-    };
+    if(!cfg){
+      document.addEventListener("DOMContentLoaded",function(){
+        var el=document.getElementById("root");
+        if(el) el.innerHTML='<div style="font-family:sans-serif;padding:40px;text-align:center;color:#636366"><div style="font-size:48px;margin-bottom:16px">⛺</div><div style="font-size:18px;font-weight:600;margin-bottom:8px">Config missing</div><div style="font-size:14px">Make sure <b>config.js</b> is in your repo.</div></div>';
+      });
+      return;
+    }
+    firebase.initializeApp(cfg);
+    // Confirm DB is reachable — wrappers call firebase.database() directly
     window.__fbReady = true;
-    // Event still dispatched for any listeners that registered early
     window.dispatchEvent(new Event("fb-ready"));
   })();
 </script>
@@ -197,16 +190,16 @@ const DEF_INV = [
 ];
 
 // ── Firebase wrappers ────────────────────────────────────────────────────────
-const F     = () => window.__fb;
-const fSet  = (p,v)  => F().set(F().ref(F().db,p),v);
-const fUpd  = (p,v)  => F().update(F().ref(F().db,p),v);
-const fDel  = p      => F().remove(F().ref(F().db,p));
-const fOn   = (p,cb) => {
-  const r = F().ref(F().db,p);
-  // compat SDK passes snapshot to listener — unwrap it here
-  const handler = s => cb(s.exists() ? s.val() : null);
-  F().onValue(r, handler);
-  return () => F().off(r, "value", handler);
+// Uses Firebase compat SDK directly — no shim layer
+const dbRef  = p       => firebase.database().ref(p);
+const fSet   = (p,v)   => dbRef(p).set(v);
+const fUpd   = (p,v)   => dbRef(p).update(v);
+const fDel   = p       => dbRef(p).remove();
+const fOn    = (p,cb)  => {
+  const r = dbRef(p);
+  const fn = snap => cb(snap.exists() ? snap.val() : null);
+  r.on("value", fn);
+  return () => r.off("value", fn); // only removes this specific listener
 };
 
 // ── Excel helpers ────────────────────────────────────────────────────────────
@@ -579,10 +572,9 @@ function App(){
 
   // Firebase ready — check flag first, then poll every 50ms so it's near-instant
   useEffect(()=>{
-    if(window.__fb && window.__fbReady){ setFbReady(true); return; }
-    // Poll rapidly in case the module event already fired before React mounted
+    if(window.__fbReady){ setFbReady(true); return; }
     const poll = setInterval(()=>{
-      if(window.__fb && window.__fbReady){ setFbReady(true); clearInterval(poll); }
+      if(window.__fbReady){ setFbReady(true); clearInterval(poll); }
     }, 50);
     const h=()=>{ setFbReady(true); clearInterval(poll); };
     window.addEventListener("fb-ready",h);
