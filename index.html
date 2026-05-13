@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<title>Base Camp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Serif+Display&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- ═══════════════════════════════════════════════
+  FIREBASE SETUP — paste your config below
+  Steps:
+  1. console.firebase.google.com → New project
+  2. Add web app → copy config
+  3. Build → Realtime Database → Create (test mode)
+════════════════════════════════════════════════ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get, update, push, onValue, remove, off }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyA-jN57LdDWnrjbQL-_s6pxKltd7yZOm7o",
+    authDomain:        "basecamp-app-1a745.firebaseapp.com",
+    databaseURL:       "https://basecamp-app-1a745-default-rtdb.firebaseio.com",
+    projectId:         "basecamp-app-1a745",
+    storageBucket:     "basecamp-app-1a745.firebasestorage.app",
+    messagingSenderId: "13613174666",
+    appId:             "1:13613174666:web:1556b8feb9d28ac1e58273",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  window.__fb = { db, ref, set, get, update, push, onValue, remove, off };
+  window.dispatchEvent(new Event("fb-ready"));
+</script>
+
+<style>
+:root {
+  --bg:       #F2F2F7;
+  --surface:  #FFFFFF;
+  --surf2:    #F7F7FA;
+  --border:   rgba(0,0,0,.08);
+  --text:     #1C1C1E;
+  --text2:    #636366;
+  --text3:    #AEAEB2;
+  --accent:   #34C759;
+  --blue:     #007AFF;
+  --warn:     #FF9500;
+  --danger:   #FF3B30;
+  --purple:   #AF52DE;
+  --sh:       0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.05);
+  --sh-lg:    0 8px 40px rgba(0,0,0,.14);
+  --r:        13px;
+  --r-sm:     9px;
+  --font:     'DM Sans', system-ui, sans-serif;
+  --serif:    'DM Serif Display', Georgia, serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg)}
+body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:var(--font)}
+button{cursor:pointer;transition:opacity .12s,transform .1s}
+button:active{transform:scale(.96);opacity:.85}
+input[type=checkbox]{accent-color:var(--accent);cursor:pointer;flex-shrink:0}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+*{-webkit-tap-highlight-color:transparent}
+
+@keyframes fadeIn {from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes pop    {0%{transform:scale(.9);opacity:0}65%{transform:scale(1.03)}100%{transform:scale(1);opacity:1}}
+@keyframes spin   {to{transform:rotate(360deg)}}
+@keyframes check  {0%{transform:scale(1)}40%{transform:scale(1.25)}100%{transform:scale(1)}}
+
+.fi{animation:fadeIn .22s ease both}
+.pop{animation:pop .28s ease both}
+.spin{animation:spin .7s linear infinite}
+
+.stagger>.fi:nth-child(1){animation-delay:.03s}
+.stagger>.fi:nth-child(2){animation-delay:.07s}
+.stagger>.fi:nth-child(3){animation-delay:.11s}
+.stagger>.fi:nth-child(4){animation-delay:.15s}
+.stagger>.fi:nth-child(5){animation-delay:.19s}
+.stagger>.fi:nth-child(6){animation-delay:.23s}
+.stagger>.fi:nth-child(7){animation-delay:.27s}
+
+/* Layout */
+.layout{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:256px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto}
+.content{flex:1;overflow-y:auto;background:var(--bg)}
+
+@media(max-width:700px){
+  .sidebar{display:none}
+  .sidebar.open{display:flex;position:fixed;inset:0;width:100%;z-index:300;animation:fadeIn .18s ease}
+  .content{width:100%}
+}
+
+/* Cards */
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.crow{display:flex;align-items:center;padding:13px 16px;gap:11px;
+  border-bottom:1px solid var(--border);transition:background .1s}
+.crow:last-child{border-bottom:none}
+.crow:active{background:var(--surf2)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:9px 18px;border-radius:var(--r-sm);font-size:14px;font-weight:500;
+  border:none;white-space:nowrap}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-green{background:var(--accent);color:#fff}
+.btn-ghost{background:var(--surf2);color:var(--text2);border:1px solid var(--border)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-sm{padding:6px 13px;font-size:13px;border-radius:8px}
+.btn-icon{padding:7px 9px;border-radius:8px;background:var(--surf2);border:1px solid var(--border);
+  color:var(--text2);font-size:15px;line-height:1}
+
+/* Input */
+.inp{background:var(--surf2);border:1.5px solid var(--border);border-radius:var(--r-sm);
+  padding:10px 13px;font-size:14px;color:var(--text);outline:none;width:100%;
+  transition:border-color .15s,box-shadow .15s}
+.inp:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,122,255,.12)}
+.inp::placeholder{color:var(--text3)}
+
+/* Pills */
+.pill{display:inline-flex;align-items:center;gap:3px;padding:2px 9px;border-radius:20px;
+  font-size:11px;font-weight:500;letter-spacing:.15px}
+.p-green{background:#D1FAE5;color:#065F46}
+.p-orange{background:#FEF3C7;color:#92400E}
+.p-blue{background:#DBEAFE;color:#1E40AF}
+.p-gray{background:var(--surf2);color:var(--text2);border:1px solid var(--border)}
+.p-purple{background:#EDE9FE;color:#5B21B6}
+
+/* Section label */
+.slabel{font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text3);
+  text-transform:uppercase;padding:18px 4px 8px}
+
+/* Phase badge */
+.pbadge{font-size:10px;font-weight:600;letter-spacing:.3px;padding:2px 7px;border-radius:6px}
+.pb0{background:#D1FAE5;color:#065F46}
+.pb1{background:#FEF3C7;color:#92400E}
+.pb2{background:#DBEAFE;color:#1E40AF}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;
+  justify-content:center;z-index:500;padding:20px;animation:fadeIn .16s ease}
+.modal{background:var(--surface);border-radius:18px;box-shadow:var(--sh-lg);
+  width:100%;max-width:460px;max-height:88vh;overflow-y:auto;animation:pop .24s ease}
+
+/* Chat bubble */
+.bubble-me{background:var(--blue);color:#fff;border-radius:16px 16px 4px 16px}
+.bubble-them{background:var(--surface);color:var(--text);border-radius:16px 16px 16px 4px;box-shadow:var(--sh)}
+
+/* Donut */
+.dring{fill:none;stroke-linecap:round;transition:stroke-dashoffset .65s cubic-bezier(.4,0,.2,1)}
+
+/* Bar */
+.bar-fill{height:100%;border-radius:3px;transition:width .55s cubic-bezier(.4,0,.2,1)}
+
+/* Checked state */
+.packed-row{background:var(--surf2)}
+.packed-name{text-decoration:line-through;color:var(--text3)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const {useState,useEffect,useRef,useMemo,useCallback} = React;
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const PHASES   = ["Night Before","Morning Of","At Camp"];
+const PH_CLS   = ["pb0","pb1","pb2"];
+const COLORS   = ["#34C759","#007AFF","#FF9500","#FF2D55","#AF52DE","#5AC8FA","#FF6B35","#30B0C7"];
+const gid      = () => Math.random().toString(36).slice(2,10);
+const ts       = () => Date.now();
+const ago      = t => { const d=ts()-t,m=~~(d/6e4),h=~~(m/60),dy=~~(h/24); return dy?`${dy}d ago`:h?`${h}h ago`:m?`${m}m ago`:"just now"; };
+const ac       = n  => COLORS[(n||"?").charCodeAt(0)%COLORS.length];
+const lsGet    = (k,f) => { try{const v=localStorage.getItem(k);return v?JSON.parse(v):f}catch{return f} };
+const lsSet    = (k,v) => { try{localStorage.setItem(k,JSON.stringify(v))}catch{} };
+const urlTrip  = () => new URLSearchParams(location.search).get("trip");
+
+const DEF_INV = [
+  {id:"shelter",  name:"Shelter",          icon:"⛺",items:[{id:"i1",name:"Tent",qty:1,weight:""},{id:"i2",name:"Sleeping Bag",qty:1,weight:""},{id:"i3",name:"Sleeping Pad",qty:1,weight:""},{id:"i4",name:"Tarp / Rain Fly",qty:1,weight:""},{id:"i5",name:"Extra Stakes",qty:6,weight:""}]},
+  {id:"cooking",  name:"Cooking",           icon:"🔥",items:[{id:"i6",name:"Camp Stove",qty:1,weight:""},{id:"i7",name:"Fuel Canister",qty:2,weight:""},{id:"i8",name:"Cook Pot",qty:1,weight:""},{id:"i9",name:"Utensil Set",qty:1,weight:""},{id:"i10",name:"Lighter",qty:2,weight:""},{id:"i11",name:"Cooler",qty:1,weight:""},{id:"i12",name:"Water Filter",qty:1,weight:""}]},
+  {id:"clothing", name:"Clothing",          icon:"🧥",items:[{id:"i13",name:"Rain Jacket",qty:1,weight:""},{id:"i14",name:"Base Layer",qty:1,weight:""},{id:"i15",name:"Fleece Layer",qty:1,weight:""},{id:"i16",name:"Hiking Boots",qty:1,weight:""},{id:"i17",name:"Wool Socks",qty:3,weight:""},{id:"i18",name:"Sun Hat",qty:1,weight:""}]},
+  {id:"nav",      name:"Navigation",        icon:"🧭",items:[{id:"i19",name:"Topographic Map",qty:1,weight:""},{id:"i20",name:"Compass",qty:1,weight:""},{id:"i21",name:"Headlamp + Batteries",qty:1,weight:""}]},
+  {id:"safety",   name:"Safety & First Aid",icon:"🩹",items:[{id:"i22",name:"First Aid Kit",qty:1,weight:""},{id:"i23",name:"Emergency Whistle",qty:1,weight:""},{id:"i24",name:"Multi-tool",qty:1,weight:""},{id:"i25",name:"Sunscreen",qty:1,weight:""},{id:"i26",name:"Bug Spray",qty:1,weight:""},{id:"i27",name:"Bear Canister",qty:1,weight:""}]},
+  {id:"hygiene",  name:"Hygiene",           icon:"🧼",items:[{id:"i28",name:"Toothbrush & Paste",qty:1,weight:""},{id:"i29",name:"Biodegradable Soap",qty:1,weight:""},{id:"i30",name:"Toilet Paper",qty:2,weight:""},{id:"i31",name:"Cat Hole Trowel",qty:1,weight:""},{id:"i32",name:"Hand Sanitizer",qty:1,weight:""}]},
+];
+
+// ── Firebase wrappers ────────────────────────────────────────────────────────
+const F     = () => window.__fb;
+const fSet  = (p,v)  => F().set(F().ref(F().db,p),v);
+const fUpd  = (p,v)  => F().update(F().ref(F().db,p),v);
+const fDel  = p      => F().remove(F().ref(F().db,p));
+const fOn   = (p,cb) => { const r=F().ref(F().db,p); F().onValue(r,s=>cb(s.exists()?s.val():null)); return ()=>F().off(r); };
+
+// ── Excel helpers ────────────────────────────────────────────────────────────
+function exportXLSX(inv) {
+  const wb = XLSX.utils.book_new();
+  const info=[["BASE CAMP Gear Template"],[""],
+    ["Instructions:"],
+    ["• Each sheet = one category (sheet name = category name)"],
+    ["• Required columns: Name, Quantity"],
+    ["• Optional: Weight (e.g. 1.2 kg), Phase (Night Before / Morning Of / At Camp)"],
+    ["• Add new sheets for new categories — use emoji prefix e.g. '🏕️ Games'"],
+    ["• Import this file back into Base Camp to update your inventory"],
+  ];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(info),"📖 How to use");
+  inv.forEach(cat=>{
+    const rows=[["Name","Quantity","Weight (optional)","Phase (optional)"]];
+    cat.items.forEach(i=>rows.push([i.name,i.qty,i.weight||"",i.phase||""]));
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),`${cat.icon} ${cat.name}`);
+  });
+  XLSX.writeFile(wb,"basecamp-gear.xlsx");
+}
+
+function parseXLSX(file,cb) {
+  const r=new FileReader();
+  r.onload=e=>{
+    const wb=XLSX.read(e.target.result,{type:"array"});
+    const cats=[];
+    wb.SheetNames.forEach(sn=>{
+      if(sn.startsWith("📖")) return;
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1});
+      if(rows.length<2) return;
+      const em=sn.match(/^(\p{Emoji})/u);
+      const icon=em?em[1]:"📦";
+      const name=sn.replace(/^(\p{Emoji}\s*)/u,"").trim();
+      const items=rows.slice(1).filter(r=>r[0]).map(r=>({
+        id:gid(),name:String(r[0]).trim(),qty:parseInt(r[1])||1,
+        weight:r[2]?String(r[2]).trim():"",phase:r[3]?String(r[3]).trim():"",
+      }));
+      if(items.length) cats.push({id:gid(),name,icon,items});
+    });
+    cb(cats);
+  };
+  r.readAsArrayBuffer(file);
+}
+
+// ── Small UI pieces ──────────────────────────────────────────────────────────
+function Toast({msg}){
+  return msg?(
+    <div style={{position:"fixed",top:62,left:"50%",transform:"translateX(-50%)",
+      background:"#1C1C1E",color:"#fff",padding:"9px 20px",borderRadius:22,
+      fontSize:13,fontWeight:500,zIndex:9999,boxShadow:"0 4px 24px rgba(0,0,0,.25)",
+      whiteSpace:"nowrap",animation:"fadeIn .18s ease"}}>
+      {msg}
+    </div>
+  ):null;
+}
+
+function Av({name,size=28}){
+  return(
+    <div style={{width:size,height:size,borderRadius:"50%",background:ac(name),
+      display:"flex",alignItems:"center",justifyContent:"center",
+      fontSize:size*.38,fontWeight:600,color:"#fff",flexShrink:0}}>
+      {(name||"?")[0].toUpperCase()}
+    </div>
+  );
+}
+
+function Donut({pct=0,color="#34C759",sz=88,sw=9,label,sub}){
+  const r=(sz-sw)/2, c=2*Math.PI*r, off=c*(1-Math.min(pct,100)/100);
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+      <svg width={sz} height={sz} style={{transform:"rotate(-90deg)"}}>
+        <circle fill="none" cx={sz/2} cy={sz/2} r={r} stroke="var(--bg)" strokeWidth={sw}/>
+        <circle className="dring" fill="none" cx={sz/2} cy={sz/2} r={r}
+          stroke={color} strokeWidth={sw} strokeDasharray={c} strokeDashoffset={off}/>
+      </svg>
+      {label&&<div style={{fontSize:13,fontWeight:700,color:"var(--text)",marginTop:-4}}>{label}</div>}
+      {sub&&<div style={{fontSize:11,color:"var(--text3)"}}>{sub}</div>}
+    </div>
+  );
+}
+
+function CatBars({items,color}){
+  const cats=useMemo(()=>{
+    const m={};
+    (items||[]).forEach(i=>{
+      if(!m[i.catName])m[i.catName]={n:i.catName,ic:i.catIcon||"📦",tot:0,packed:0,buy:0};
+      m[i.catName].tot++;
+      if(i.packed)m[i.catName].packed++;
+      if(i.needsBuy&&!i.packed)m[i.catName].buy++;
+    });
+    return Object.values(m);
+  },[items]);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:11}}>
+      {cats.map(c=>{
+        const pp=c.tot?~~(c.packed/c.tot*100):0;
+        const bp=c.tot?~~(c.buy/c.tot*100):0;
+        return(
+          <div key={c.n}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+              <span style={{fontSize:13,fontWeight:500}}>{c.ic} {c.n}</span>
+              <span style={{fontSize:12,color:"var(--text3)"}}>{c.packed}/{c.tot}</span>
+            </div>
+            <div style={{height:7,background:"var(--bg)",borderRadius:4,overflow:"hidden",display:"flex"}}>
+              <div className="bar-fill" style={{width:`${pp}%`,background:color||"var(--accent)"}}/>
+              <div className="bar-fill" style={{width:`${bp}%`,background:"var(--warn)",marginLeft:bp?2:0}}/>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{display:"flex",gap:14,marginTop:2}}>
+        {[[color||"var(--accent)","Packed"],["var(--warn)","Needs buying"]].map(([cl,lb])=>(
+          <span key={lb} style={{fontSize:11,color:"var(--text3)",display:"flex",alignItems:"center",gap:5}}>
+            <span style={{width:8,height:8,borderRadius:2,background:cl,display:"inline-block"}}/>
+            {lb}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WhoHasWhat({items}){
+  const people=useMemo(()=>{
+    const m={};
+    (items||[]).forEach(i=>{
+      const p=i.assignedTo||(i.someoneElse?"Someone else":null);
+      if(!p)return;
+      if(!m[p])m[p]={name:p,done:[],todo:[]};
+      (i.packed?m[p].done:m[p].todo).push(i);
+    });
+    return Object.values(m);
+  },[items]);
+  if(!people.length)return(
+    <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:"20px 0"}}>
+      Assign items to friends to track who's bringing what.
+    </div>
+  );
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {people.map(p=>{
+        const tot=p.done.length+p.todo.length;
+        const pct=~~(p.done.length/tot*100);
+        return(
+          <div key={p.name} style={{background:"var(--surf2)",borderRadius:11,padding:"12px 14px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:p.todo.length?8:0}}>
+              <Av name={p.name}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600}}>{p.name}</div>
+                <div style={{fontSize:12,color:"var(--text3)"}}>{p.done.length} packed · {p.todo.length} outstanding</div>
+              </div>
+              <span style={{fontSize:13,fontWeight:700,color:pct===100?"var(--accent)":"var(--warn)"}}>{pct}%</span>
+            </div>
+            {p.todo.length>0&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:5,paddingLeft:38}}>
+                {p.todo.map(i=>(
+                  <span key={i.id} className={`pill ${i.needsBuy?"p-orange":"p-gray"}`}>
+                    {i.needsBuy?"🛒 ":""}{i.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Note thread ───────────────────────────────────────────────────────────────
+function NoteThread({tripId,itemId,notes,myName,fbReady}){
+  const [open,setOpen]=useState(false);
+  const [txt,setTxt]=useState("");
+  const list=useMemo(()=>Object.entries(notes||{}).sort((a,b)=>a[1].ts-b[1].ts),[notes]);
+
+  const post=()=>{
+    if(!txt.trim()||!fbReady)return;
+    const id=gid();
+    fUpd(`trips/${tripId}/items/${itemId}/notes`,{[id]:{id,author:myName,text:txt.trim(),ts:ts()}});
+    setTxt("");
+  };
+
+  return(
+    <div style={{marginTop:5}}>
+      <button onClick={()=>setOpen(p=>!p)}
+        style={{background:"none",border:"none",color:"var(--blue)",fontSize:12,fontWeight:500,
+          padding:0,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
+        💬 {list.length?`${list.length} note${list.length>1?"s":""}` : "Add note"}
+        <span style={{fontSize:10,color:"var(--text3)"}}>{open?"▲":"▼"}</span>
+      </button>
+      {open&&(
+        <div style={{marginTop:8,background:"var(--bg)",borderRadius:10,padding:12,display:"flex",flexDirection:"column",gap:8}} className="fi">
+          {list.map(([nid,n])=>(
+            <div key={nid} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+              <Av name={n.author} size={24}/>
+              <div style={{flex:1,background:"var(--surface)",borderRadius:9,padding:"8px 11px",boxShadow:"var(--sh)"}}>
+                <div style={{fontSize:11,color:"var(--text3)",marginBottom:2}}>
+                  <b style={{color:"var(--text2)"}}>{n.author}</b> · {ago(n.ts)}
+                </div>
+                <div style={{fontSize:13,lineHeight:1.55}}>{n.text}</div>
+              </div>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:6}}>
+            <input className="inp" style={{flex:1,fontSize:13,padding:"7px 11px"}}
+              placeholder={`Reply as ${myName}…`} value={txt}
+              onChange={e=>setTxt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&post()}/>
+            <button className="btn btn-blue btn-sm" onClick={post}>Post</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Trip item row ─────────────────────────────────────────────────────────────
+function ItemRow({item,tripId,myName,friends,fbReady}){
+  const u=patch=>fbReady&&fUpd(`trips/${tripId}/items/${item.id}`,patch);
+  const phi=PHASES.indexOf(item.phase);
+  return(
+    <div className={item.packed?"packed-row":""} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",transition:"background .18s"}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:11}}>
+        <input type="checkbox" checked={!!item.packed} style={{width:18,height:18,marginTop:2}}
+          onChange={e=>u({packed:e.target.checked,packedBy:e.target.checked?myName:null,packedAt:e.target.checked?ts():null})}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span className={item.packed?"packed-name":""} style={{fontSize:14,fontWeight:500,color:"var(--text)"}}>{item.name}</span>
+            {item.qty>1&&<span style={{fontSize:12,color:"var(--text3)"}}>×{item.qty}</span>}
+            {item.weight&&<span className="pill p-gray" style={{fontSize:11}}>{item.weight}</span>}
+            {phi>=0&&<span className={`pbadge ${PH_CLS[phi]}`}>{PHASES[phi]}</span>}
+            {!item.packed&&item.needsBuy&&<span className="pill p-orange">🛒 Needs buying</span>}
+            {!item.packed&&item.assignedTo&&<span className="pill p-blue">👤 {item.assignedTo}</span>}
+            {!item.packed&&item.someoneElse&&!item.assignedTo&&<span className="pill p-gray">Someone else</span>}
+          </div>
+          {item.packed&&item.packedBy&&(
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>✓ Packed by {item.packedBy}</div>
+          )}
+          {!item.packed&&(
+            <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:8,alignItems:"center"}}>
+              <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:12,color:"var(--text2)"}}>
+                <input type="checkbox" checked={!!item.needsBuy} style={{width:14,height:14,accentColor:"var(--warn)"}}
+                  onChange={e=>u({needsBuy:e.target.checked})}/>
+                Needs buying
+              </label>
+              <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:12,color:"var(--text2)"}}>
+                <input type="checkbox" checked={!!item.someoneElse&&!item.assignedTo} style={{width:14,height:14}}
+                  onChange={e=>u({someoneElse:e.target.checked,assignedTo:e.target.checked?null:item.assignedTo})}/>
+                Someone else
+              </label>
+              {friends.length>0&&(
+                <select style={{fontSize:12,background:"var(--surf2)",border:"1px solid var(--border)",
+                  borderRadius:7,padding:"3px 8px",color:"var(--text2)",cursor:"pointer"}}
+                  value={item.assignedTo||""}
+                  onChange={e=>u({assignedTo:e.target.value||null,someoneElse:!!e.target.value})}>
+                  <option value="">Assign to…</option>
+                  {friends.map(f=><option key={f.id} value={f.name}>{f.name}</option>)}
+                </select>
+              )}
+              <select style={{fontSize:12,background:"var(--surf2)",border:"1px solid var(--border)",
+                borderRadius:7,padding:"3px 8px",color:"var(--text2)",cursor:"pointer"}}
+                value={item.phase||""}
+                onChange={e=>u({phase:e.target.value||null})}>
+                <option value="">Phase…</option>
+                {PHASES.map(p=><option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          )}
+          <NoteThread tripId={tripId} itemId={item.id} notes={item.notes}
+            myName={myName} fbReady={fbReady}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Conflict modal ────────────────────────────────────────────────────────────
+function ConflictModal({conflicts,onResolve,onClose}){
+  const [dec,setDec]=useState(()=>{const d={};conflicts.forEach(c=>d[c.id]="keep");return d;});
+  return(
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"20px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontFamily:"var(--serif)",fontSize:20}}>Resolve Conflicts</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div style={{padding:"14px 20px 24px"}}>
+          <p style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.65}}>
+            These items already exist in your inventory. Choose what to do with each.
+          </p>
+          {conflicts.map(c=>(
+            <div key={c.id} style={{background:"var(--surf2)",borderRadius:10,padding:"12px 14px",marginBottom:8}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>"{c.name}" <span style={{fontWeight:400,color:"var(--text3)"}}>in {c.catName}</span></div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[["keep","Keep existing"],["replace","Replace with import"],["skip","Skip"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>setDec(p=>({...p,[c.id]:v}))}
+                    style={{fontSize:12,padding:"5px 12px",borderRadius:8,border:"1.5px solid",cursor:"pointer",fontWeight:500,
+                      borderColor:dec[c.id]===v?"var(--blue)":"var(--border)",
+                      background:dec[c.id]===v?"#EEF5FF":"var(--surface)",
+                      color:dec[c.id]===v?"var(--blue)":"var(--text2)"}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button className="btn btn-blue" style={{width:"100%",marginTop:16,padding:12}}
+            onClick={()=>onResolve(dec)}>
+            Apply & Import
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [fbReady,  setFbReady]  = useState(false);
+  const [myName,   setMyName]   = useState(()=>lsGet("bc_name",null));
+  const [inv,      setInv]      = useState(()=>lsGet("bc_inv",DEF_INV));
+  const [friends,  setFriends]  = useState(()=>lsGet("bc_friends",[]));
+  const [tmpls,    setTmpls]    = useState(()=>lsGet("bc_tmpls",[]));
+  const [trips,    setTrips]    = useState([]);
+  const [chats,    setChats]    = useState({});
+  const [activeId, setActiveId] = useState(null);
+  const [view,     setView]     = useState("home");
+  const [toast,    setToast]    = useState(null);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [conflicts,setConflicts]= useState(null);
+  const [pending,  setPending]  = useState(null);
+  const [expCats,  setExpCats]  = useState({});
+  const [phaseFlt, setPhaseFlt] = useState("all");
+  const [nim,      setNim]      = useState({}); // newItemMap
+  const [newCat,   setNewCat]   = useState("");
+  const [newFrd,   setNewFrd]   = useState("");
+  const [newTrip,  setNewTrip]  = useState("");
+  const [chatTxt,  setChatTxt]  = useState("");
+  const [showAC,   setShowAC]   = useState(false);
+  const [showNT,   setShowNT]   = useState(false);
+  const [showTmpl, setShowTmpl] = useState(false);
+  const fileRef  = useRef();
+  const chatBtm  = useRef();
+
+  const notify = m => { setToast(m); setTimeout(()=>setToast(null),2500); };
+  const goTrip = (id,v="trip") => { setActiveId(id); setView(v); setSideOpen(false); };
+
+  // Firebase ready
+  useEffect(()=>{
+    if(window.__fb) setFbReady(true);
+    else { const h=()=>setFbReady(true); window.addEventListener("fb-ready",h); return ()=>window.removeEventListener("fb-ready",h); }
+  },[]);
+
+  // URL deep-link
+  useEffect(()=>{ const t=urlTrip(); if(t&&fbReady){ setActiveId(t); setView("trip"); } },[fbReady]);
+
+  // Live trips
+  useEffect(()=>{
+    if(!fbReady)return;
+    return fOn("trips",data=>{
+      setTrips(data?Object.values(data).map(t=>({...t,items:t.items||{}})):[]);
+    });
+  },[fbReady]);
+
+  // Live chat for active trip
+  useEffect(()=>{
+    if(!fbReady||!activeId)return;
+    return fOn(`chats/${activeId}`,data=>setChats(data||{}));
+  },[fbReady,activeId]);
+
+  // Scroll chat
+  useEffect(()=>{ if(chatBtm.current) chatBtm.current.scrollIntoView({behavior:"smooth"}); },[chats,view]);
+
+  // Persist local data
+  useEffect(()=>lsSet("bc_inv",inv),[inv]);
+  useEffect(()=>lsSet("bc_friends",friends),[friends]);
+  useEffect(()=>lsSet("bc_tmpls",tmpls),[tmpls]);
+
+  const activeTrip = useMemo(()=>trips.find(t=>t.id===activeId)||null,[trips,activeId]);
+  const tripItems  = useMemo(()=>activeTrip?Object.values(activeTrip.items):[],[activeTrip]);
+
+  const stats = useMemo(()=>{
+    const tot=tripItems.length, packed=tripItems.filter(i=>i.packed).length,
+          buy=tripItems.filter(i=>i.needsBuy&&!i.packed).length,
+          asgn=tripItems.filter(i=>(i.assignedTo||i.someoneElse)&&!i.packed).length,
+          pct=tot?~~(packed/tot*100):0;
+    return {tot,packed,buy,asgn,pct};
+  },[tripItems]);
+
+  const filtItems = useMemo(()=>
+    phaseFlt==="all"?tripItems:tripItems.filter(i=>i.phase===phaseFlt),[tripItems,phaseFlt]);
+
+  const tripCats = useMemo(()=>{
+    const ids=[...new Set(filtItems.map(i=>i.catId))];
+    return ids.map(cid=>({
+      catId:cid,
+      catName:filtItems.find(i=>i.catId===cid)?.catName||"",
+      catIcon:filtItems.find(i=>i.catId===cid)?.catIcon||"📦",
+      items:filtItems.filter(i=>i.catId===cid),
+    }));
+  },[filtItems]);
+
+  const chatList = useMemo(()=>Object.values(chats).sort((a,b)=>a.ts-b.ts),[chats]);
+  const shareUrl = activeId?`${location.origin}${location.pathname}?trip=${activeId}`:"";
+
+  // ── Inventory ops ──
+  const addCat   = ()=>{ if(!newCat.trim())return; setInv(p=>[...p,{id:gid(),name:newCat.trim(),icon:"📦",items:[]}]); setNewCat(""); setShowAC(false); notify("Category added"); };
+  const delCat   = id=>setInv(p=>p.filter(c=>c.id!==id));
+  const addItem  = catId=>{ const n=(nim[catId]||"").trim(); if(!n)return; setInv(p=>p.map(c=>c.id===catId?{...c,items:[...c.items,{id:gid(),name:n,qty:1,weight:""}]}:c)); setNim(p=>({...p,[catId]:""})); notify("Item added"); };
+  const delItem  = (catId,iid)=>setInv(p=>p.map(c=>c.id===catId?{...c,items:c.items.filter(i=>i.id!==iid)}:c));
+
+  // ── Import ──
+  const handleFile = file=>{
+    parseXLSX(file,imported=>{
+      const existing=new Set(inv.flatMap(c=>c.items.map(i=>i.name.toLowerCase())));
+      const conf=[];
+      imported.forEach(cat=>cat.items.forEach(item=>{ if(existing.has(item.name.toLowerCase())) conf.push({...item,catName:cat.name}); }));
+      if(conf.length){ setConflicts(conf); setPending(imported); }
+      else applyImport(imported,{});
+    });
+  };
+  const applyImport=(imported,dec)=>{
+    setInv(prev=>{
+      let res=[...prev];
+      imported.forEach(ic=>{
+        const ec=res.find(c=>c.name.toLowerCase()===ic.name.toLowerCase());
+        if(ec){
+          const merged=[...ec.items];
+          ic.items.forEach(ni=>{
+            const ei=merged.findIndex(x=>x.name.toLowerCase()===ni.name.toLowerCase());
+            if(ei===-1) merged.push(ni);
+            else if((dec[ni.id]||"keep")==="replace") merged[ei]={...merged[ei],...ni,id:merged[ei].id};
+          });
+          res=res.map(c=>c.id===ec.id?{...c,items:merged}:c);
+        } else res=[...res,ic];
+      });
+      return res;
+    });
+    setConflicts(null); setPending(null); notify("Import complete!");
+  };
+
+  // ── Trip ops ──
+  const createTrip = async (tmpl=null)=>{
+    const name=(tmpl?tmpl.name:newTrip).trim();
+    if(!name||!fbReady)return;
+    const color=COLORS[trips.length%COLORS.length];
+    const items={};
+    (tmpl?tmpl.cats:inv).forEach(cat=>{
+      cat.items.forEach(item=>{ const id=gid(); items[id]={id,catId:cat.id,catName:cat.name,catIcon:cat.icon,name:item.name,qty:item.qty||1,weight:item.weight||"",packed:false,needsBuy:false,someoneElse:false,assignedTo:null,phase:item.phase||null,notes:{}}; });
+    });
+    const t={id:gid(),name,color,createdAt:ts(),items};
+    await fSet(`trips/${t.id}`,t);
+    goTrip(t.id); setNewTrip(""); setShowNT(false); setShowTmpl(false);
+    notify(`"${name}" created!`);
+  };
+  const deleteTrip = async id=>{ await fDel(`trips/${id}`); if(activeId===id){setActiveId(null);setView("trips");} notify("Trip deleted"); };
+  const saveTemplate = ()=>{
+    if(!activeTrip)return;
+    const cats=[...new Set(tripItems.map(i=>i.catId))].map(cid=>({
+      id:cid, name:tripItems.find(i=>i.catId===cid).catName,
+      icon:tripItems.find(i=>i.catId===cid).catIcon||"📦",
+      items:tripItems.filter(i=>i.catId===cid).map(i=>({id:gid(),name:i.name,qty:i.qty,weight:i.weight||"",phase:i.phase||""})),
+    }));
+    setTmpls(p=>[...p,{id:gid(),name:activeTrip.name,cats}]);
+    notify("Saved as template!");
+  };
+  const addTripItem=(catId,catName,catIcon)=>{
+    const k=`t-${catId}`, n=(nim[k]||"").trim(); if(!n||!fbReady)return;
+    const id=gid();
+    fUpd(`trips/${activeId}/items`,{[id]:{id,catId,catName,catIcon:catIcon||"📦",name:n,qty:1,weight:"",packed:false,needsBuy:false,someoneElse:false,assignedTo:null,phase:null,notes:{}}});
+    setNim(p=>({...p,[k]:""})); notify("Item added to trip");
+  };
+
+  // ── Chat ──
+  const sendChat=()=>{
+    if(!chatTxt.trim()||!fbReady)return;
+    const id=gid();
+    fUpd(`chats/${activeId}`,{[id]:{id,author:myName,text:chatTxt.trim(),ts:ts()}});
+    setChatTxt("");
+  };
+
+  // ── Sidebar ──
+  const SB=()=>(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{padding:"22px 18px 10px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:22}}>⛺</span>
+        <span style={{fontFamily:"var(--serif)",fontSize:17,letterSpacing:.3}}>Base Camp</span>
+      </div>
+      <div style={{padding:"0 10px",flex:1}}>
+        {[["home","🏠","Home"],["inventory","🎒","My Gear"],["trips","🗺️","Trips"]].map(([v,ic,lb])=>(
+          <button key={v} onClick={()=>{ setView(v); setActiveId(null); setSideOpen(false); }}
+            style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+              borderRadius:10,border:"none",textAlign:"left",fontSize:14,fontWeight:500,marginBottom:2,
+              background:(view===v&&!activeId)?"var(--bg)":"transparent",
+              color:(view===v&&!activeId)?"var(--blue)":"var(--text2)",transition:"all .14s"}}>
+            <span style={{fontSize:16,width:20,textAlign:"center"}}>{ic}</span>{lb}
+          </button>
+        ))}
+        {trips.length>0&&(
+          <>
+            <div className="slabel" style={{padding:"14px 12px 5px"}}>TRIPS</div>
+            {trips.map(t=>(
+              <button key={t.id} onClick={()=>goTrip(t.id)}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:9,padding:"9px 12px",
+                  borderRadius:10,border:"none",textAlign:"left",fontSize:13,fontWeight:500,marginBottom:2,
+                  background:activeId===t.id?"var(--bg)":"transparent",
+                  color:activeId===t.id?t.color:"var(--text2)",transition:"all .14s"}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+                <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</span>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+      <div style={{padding:"12px 18px 20px",borderTop:"1px solid var(--border)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <Av name={myName} size={26}/>
+          <span style={{fontSize:13,color:"var(--text2)",flex:1}}>{myName}</span>
+          <button style={{fontSize:11,color:"var(--text3)",background:"none",border:"none",cursor:"pointer"}}
+            onClick={()=>{ lsSet("bc_name",null); setMyName(null); }}>change</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if(!myName) return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:"var(--bg)"}}>
+      <div className="card pop" style={{padding:"36px 30px",maxWidth:360,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:52,marginBottom:12}}>⛺</div>
+        <div style={{fontFamily:"var(--serif)",fontSize:26,marginBottom:8}}>Base Camp</div>
+        <div style={{fontSize:14,color:"var(--text2)",marginBottom:26,lineHeight:1.7}}>
+          Enter your name so your crew knows who packed what.
+        </div>
+        {(()=>{ const [n,sn]=useState(""); return(<>
+          <input className="inp" style={{textAlign:"center",fontSize:15,marginBottom:12}}
+            placeholder="Your name…" value={n} autoFocus
+            onChange={e=>sn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&n.trim()&&(setMyName(n.trim()),lsSet("bc_name",n.trim()))}/>
+          <button className="btn btn-blue" style={{width:"100%",padding:12,fontSize:15}}
+            onClick={()=>n.trim()&&(setMyName(n.trim()),lsSet("bc_name",n.trim()))}>
+            Enter Camp →
+          </button>
+        </>); })()}
+      </div>
+    </div>
+  );
+
+  const TripTabs=()=>activeTrip?(
+    <div style={{display:"flex",gap:5}}>
+      {[["trip","✓ List"],["dashboard","📊"],["chat","💬"]].map(([v,lb])=>(
+        <button key={v} onClick={()=>setView(v)}
+          style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:"none",fontWeight:500,
+            background:view===v?"var(--blue)":"var(--surf2)",
+            color:view===v?"#fff":"var(--text2)"}}>
+          {lb}
+        </button>
+      ))}
+    </div>
+  ):null;
+
+  return(
+    <div className="layout">
+      <Toast msg={toast}/>
+      {conflicts&&<ConflictModal conflicts={conflicts} onResolve={d=>applyImport(pending,d)} onClose={()=>{setConflicts(null);setPending(null);}}/>}
+
+      {/* Sidebar */}
+      <div className={`sidebar${sideOpen?" open":""}`}>
+        {sideOpen&&<button onClick={()=>setSideOpen(false)}
+          style={{position:"absolute",top:14,right:14,background:"none",border:"none",fontSize:20,color:"var(--text2)",zIndex:10}}>✕</button>}
+        <SB/>
+      </div>
+
+      {/* Content */}
+      <div className="content">
+        {/* Top bar */}
+        <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",
+          padding:"12px 16px",display:"flex",alignItems:"center",gap:10,
+          position:"sticky",top:0,zIndex:100,minHeight:54}}>
+          <button className="btn-icon" onClick={()=>setSideOpen(p=>!p)}>☰</button>
+          <span style={{fontFamily:"var(--serif)",fontSize:16,flex:1,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {activeTrip?activeTrip.name:view==="home"?"Base Camp":view==="inventory"?"My Gear":"Trips"}
+          </span>
+          <TripTabs/>
+        </div>
+
+        {/* ════ HOME ════ */}
+        {view==="home"&&(
+          <div style={{padding:"28px 18px 60px",maxWidth:680,margin:"0 auto"}} className="fi">
+            <div style={{fontFamily:"var(--serif)",fontSize:32,marginBottom:8,lineHeight:1.2}}>Hey, {myName} 👋</div>
+            <div style={{fontSize:15,color:"var(--text2)",marginBottom:30,lineHeight:1.7}}>Ready for your next adventure?</div>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:30}} className="stagger">
+              {[
+                {ic:"🎒",v:inv.reduce((a,c)=>a+c.items.length,0),lb:"Gear items",  cl:"var(--blue)"},
+                {ic:"🗺️",v:trips.length,                          lb:"Trips",       cl:"var(--accent)"},
+                {ic:"👥",v:friends.length,                        lb:"Friends",     cl:"var(--warn)"},
+                {ic:"📋",v:tmpls.length,                          lb:"Templates",   cl:"var(--purple)"},
+              ].map(s=>(
+                <div key={s.lb} className="card fi" style={{padding:"16px 16px"}}>
+                  <div style={{fontSize:22,marginBottom:6}}>{s.ic}</div>
+                  <div style={{fontSize:26,fontWeight:700,color:s.cl,lineHeight:1}}>{s.v}</div>
+                  <div style={{fontSize:12,color:"var(--text3)",marginTop:3}}>{s.lb}</div>
+                </div>
+              ))}
+            </div>
+
+            {trips.length>0&&(
+              <>
+                <div className="slabel">RECENT TRIPS</div>
+                <div className="card" style={{marginBottom:26}}>
+                  {trips.slice(-5).reverse().map(t=>{
+                    const its=Object.values(t.items||{});
+                    const pct=its.length?~~(its.filter(i=>i.packed).length/its.length*100):0;
+                    return(
+                      <div key={t.id} className="crow" style={{cursor:"pointer"}} onClick={()=>goTrip(t.id)}>
+                        <span style={{width:9,height:9,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+                        <span style={{flex:1,fontSize:14,fontWeight:500}}>{t.name}</span>
+                        <div style={{width:70,height:5,background:"var(--bg)",borderRadius:3,overflow:"hidden",marginRight:8}}>
+                          <div style={{height:"100%",width:`${pct}%`,background:t.color,borderRadius:3,transition:"width .5s"}}/>
+                        </div>
+                        <span style={{fontSize:12,fontWeight:700,color:t.color,width:32,textAlign:"right"}}>{pct}%</span>
+                        <span style={{color:"var(--text3)",fontSize:18,lineHeight:1}}>›</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <div className="slabel">QUICK ACTIONS</div>
+            <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+              <button className="btn btn-green" onClick={()=>{setView("trips");setShowNT(true);}}>+ New Trip</button>
+              <button className="btn btn-ghost" onClick={()=>setView("inventory")}>Manage Gear</button>
+              {tmpls.length>0&&<button className="btn btn-ghost" onClick={()=>{setView("trips");setShowTmpl(true);}}>📋 Templates</button>}
+            </div>
+          </div>
+        )}
+
+        {/* ════ INVENTORY ════ */}
+        {view==="inventory"&&(
+          <div style={{padding:"20px 16px 60px",maxWidth:680,margin:"0 auto"}} className="fi">
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:20,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"var(--serif)",fontSize:24,flex:1}}>My Gear</span>
+              <button className="btn btn-ghost btn-sm" onClick={()=>exportXLSX(inv)}>⬇ Export</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>fileRef.current.click()}>⬆ Import</button>
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+                onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value="";}}/>
+              <button className="btn btn-blue btn-sm" onClick={()=>setShowAC(p=>!p)}>+ Category</button>
+            </div>
+
+            {/* Friends */}
+            <div className="slabel">FRIENDS</div>
+            <div className="card" style={{marginBottom:20,padding:"14px 16px"}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7,marginBottom:friends.length?12:0}}>
+                {friends.map(f=>(
+                  <div key={f.id} style={{display:"flex",alignItems:"center",gap:6,background:"var(--surf2)",
+                    border:"1px solid var(--border)",borderRadius:20,padding:"4px 12px 4px 7px"}}>
+                    <Av name={f.name} size={21}/>
+                    <span style={{fontSize:13}}>{f.name}</span>
+                    <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:15,lineHeight:1,cursor:"pointer",marginLeft:2}}
+                      onClick={()=>setFriends(p=>p.filter(x=>x.id!==f.id))}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <input className="inp" placeholder="Add friend…" value={newFrd} style={{flex:1}}
+                  onChange={e=>setNewFrd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&newFrd.trim()&&(setFriends(p=>[...p,{id:gid(),name:newFrd.trim()}]),setNewFrd(""),notify("Friend added"))}/>
+                <button className="btn btn-blue btn-sm"
+                  onClick={()=>newFrd.trim()&&(setFriends(p=>[...p,{id:gid(),name:newFrd.trim()}]),setNewFrd(""),notify("Friend added"))}>
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {showAC&&(
+              <div className="card" style={{marginBottom:14,padding:14}} className="fi">
+                <div style={{display:"flex",gap:8}}>
+                  <input className="inp" placeholder="Category name…" value={newCat} autoFocus
+                    onChange={e=>setNewCat(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCat()}/>
+                  <button className="btn btn-blue btn-sm" onClick={addCat}>Create</button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>setShowAC(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            <div className="slabel">CATEGORIES</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}} className="stagger">
+              {inv.map(cat=>{
+                const open=expCats[cat.id]!==false;
+                return(
+                  <div key={cat.id} className="card fi">
+                    <div style={{display:"flex",alignItems:"center",padding:"13px 16px",cursor:"pointer",gap:10}}
+                      onClick={()=>setExpCats(p=>({...p,[cat.id]:!open}))}>
+                      <span style={{fontSize:18}}>{cat.icon}</span>
+                      <span style={{flex:1,fontSize:15,fontWeight:600}}>{cat.name}</span>
+                      <span style={{fontSize:12,color:"var(--text3)"}}>{cat.items.length}</span>
+                      <span style={{fontSize:11,color:"var(--text3)",marginLeft:4}}>{open?"▲":"▼"}</span>
+                      <button style={{background:"none",border:"none",color:"var(--danger)",fontSize:17,cursor:"pointer",lineHeight:1,marginLeft:6}}
+                        onClick={e=>{e.stopPropagation();if(confirm(`Delete "${cat.name}"?`))delCat(cat.id);}}>×</button>
+                    </div>
+                    {open&&(
+                      <>
+                        {cat.items.map(item=>(
+                          <div key={item.id} className="crow">
+                            <span style={{flex:1,fontSize:14}}>{item.name}</span>
+                            {item.weight&&<span style={{fontSize:12,color:"var(--text3)",marginRight:4}}>{item.weight}</span>}
+                            <span style={{fontSize:12,color:"var(--text3)",marginRight:8}}>×{item.qty}</span>
+                            <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer",lineHeight:1}}
+                              onClick={()=>delItem(cat.id,item.id)}>×</button>
+                          </div>
+                        ))}
+                        <div style={{padding:"9px 12px",borderTop:"1px solid var(--border)",background:"var(--surf2)",display:"flex",gap:8}}>
+                          <input className="inp" style={{flex:1,fontSize:13,padding:"7px 11px"}} placeholder="Add item…"
+                            value={nim[cat.id]||""}
+                            onChange={e=>setNim(p=>({...p,[cat.id]:e.target.value}))}
+                            onKeyDown={e=>e.key==="Enter"&&addItem(cat.id)}/>
+                          <button className="btn btn-blue btn-sm" onClick={()=>addItem(cat.id)}>Add</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ════ TRIPS LIST ════ */}
+        {view==="trips"&&!activeId&&(
+          <div style={{padding:"20px 16px 60px",maxWidth:680,margin:"0 auto"}} className="fi">
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:20,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"var(--serif)",fontSize:24,flex:1}}>Trips</span>
+              {tmpls.length>0&&<button className="btn btn-ghost btn-sm" onClick={()=>setShowTmpl(p=>!p)}>📋 Templates</button>}
+              <button className="btn btn-blue btn-sm" onClick={()=>setShowNT(p=>!p)}>+ New Trip</button>
+            </div>
+
+            {showNT&&(
+              <div className="card" style={{marginBottom:14,padding:16}} className="fi">
+                <div style={{fontSize:13,color:"var(--text2)",marginBottom:10,fontWeight:500}}>Name your adventure — pulls gear from your inventory</div>
+                <div style={{display:"flex",gap:8}}>
+                  <input className="inp" placeholder="e.g. Yosemite June 2026" autoFocus value={newTrip}
+                    onChange={e=>setNewTrip(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createTrip()}/>
+                  <button className="btn btn-green btn-sm" onClick={()=>createTrip()}>Create</button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>setShowNT(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {showTmpl&&tmpls.length>0&&(
+              <div style={{marginBottom:18}} className="fi">
+                <div className="slabel">TEMPLATES</div>
+                <div className="card">
+                  {tmpls.map(t=>(
+                    <div key={t.id} className="crow">
+                      <span style={{fontSize:14,fontWeight:500,flex:1}}>📋 {t.name}</span>
+                      <button className="btn btn-ghost btn-sm" style={{marginRight:6}} onClick={()=>createTrip(t)}>Use</button>
+                      <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer"}}
+                        onClick={()=>setTmpls(p=>p.filter(x=>x.id!==t.id))}>×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {trips.length===0&&(
+              <div style={{textAlign:"center",padding:"56px 20px",color:"var(--text3)"}}>
+                <div style={{fontSize:50,marginBottom:12}}>🗺️</div>
+                <div style={{fontSize:16,color:"var(--text2)",marginBottom:6}}>No trips yet</div>
+                <div style={{fontSize:13}}>Create your first adventure above</div>
+              </div>
+            )}
+
+            <div style={{display:"flex",flexDirection:"column",gap:12}} className="stagger">
+              {trips.map(t=>{
+                const its=Object.values(t.items||{});
+                const pct=its.length?~~(its.filter(i=>i.packed).length/its.length*100):0;
+                const buy=its.filter(i=>i.needsBuy&&!i.packed).length;
+                return(
+                  <div key={t.id} className="card fi" style={{borderTop:`3px solid ${t.color}`}}>
+                    <div style={{padding:"14px 16px"}}>
+                      <div style={{display:"flex",alignItems:"flex-start",marginBottom:10}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:17,fontWeight:700,marginBottom:3}}>{t.name}</div>
+                          <div style={{fontSize:12,color:"var(--text3)"}}>
+                            {its.length} items · {its.filter(i=>i.packed).length} packed
+                            {buy>0&&<span style={{color:"var(--warn)"}}> · {buy} to buy</span>}
+                          </div>
+                        </div>
+                        <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:19,cursor:"pointer",lineHeight:1,marginLeft:8}}
+                          onClick={()=>{if(confirm(`Delete "${t.name}"?`))deleteTrip(t.id);}}>×</button>
+                      </div>
+                      <div style={{height:6,background:"var(--bg)",borderRadius:3,overflow:"hidden",marginBottom:12}}>
+                        <div style={{height:"100%",width:`${pct}%`,background:t.color,borderRadius:3,transition:"width .5s"}}/>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:13,fontWeight:700,color:t.color}}>{pct}% packed</span>
+                        <button className="btn btn-sm" style={{background:t.color,color:"#fff"}}
+                          onClick={()=>goTrip(t.id)}>Open →</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ════ TRIP CHECKLIST ════ */}
+        {view==="trip"&&activeTrip&&(
+          <div style={{padding:"16px 16px 60px",maxWidth:720,margin:"0 auto"}} className="fi">
+            {/* Actions */}
+            <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
+              <button className="btn btn-ghost btn-sm" onClick={saveTemplate}>📋 Save as template</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>{navigator.clipboard?.writeText(shareUrl);notify("Link copied!");}}>🔗 Share link</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>{setActiveId(null);setView("trips");}}>← Trips</button>
+            </div>
+
+            {/* Progress card */}
+            <div className="card" style={{padding:"16px 18px",marginBottom:14,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+              <Donut pct={stats.pct} color={activeTrip.color} sz={76} sw={8}/>
+              <div style={{flex:1,minWidth:120}}>
+                <div style={{fontSize:22,fontWeight:700,color:activeTrip.color,lineHeight:1,marginBottom:4}}>{stats.pct}% ready</div>
+                <div style={{fontSize:13,color:"var(--text2)"}}>{stats.packed} of {stats.tot} items packed</div>
+                {stats.buy>0&&<div style={{fontSize:12,color:"var(--warn)",marginTop:3}}>🛒 {stats.buy} need buying</div>}
+                {stats.asgn>0&&<div style={{fontSize:12,color:"var(--blue)",marginTop:2}}>👥 {stats.asgn} assigned to others</div>}
+              </div>
+            </div>
+
+            {/* Phase filter */}
+            <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+              {["all",...PHASES].map(p=>(
+                <button key={p} onClick={()=>setPhaseFlt(p)}
+                  style={{fontSize:12,padding:"5px 12px",borderRadius:20,border:"1.5px solid",cursor:"pointer",fontWeight:500,
+                    borderColor:phaseFlt===p?activeTrip.color:"var(--border)",
+                    background:phaseFlt===p?"var(--surface)":"transparent",
+                    color:phaseFlt===p?activeTrip.color:"var(--text3)"}}>
+                  {p==="all"?"All":p}
+                </button>
+              ))}
+            </div>
+
+            {/* Items */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}} className="stagger">
+              {tripCats.map(({catId,catName,catIcon,items})=>{
+                const open=expCats[`t-${catId}`]!==false;
+                const done=items.filter(i=>i.packed).length;
+                return(
+                  <div key={catId} className="card fi">
+                    <div style={{display:"flex",alignItems:"center",padding:"13px 16px",cursor:"pointer",gap:10}}
+                      onClick={()=>setExpCats(p=>({...p,[`t-${catId}`]:!open}))}>
+                      <span style={{fontSize:18}}>{catIcon}</span>
+                      <span style={{flex:1,fontSize:15,fontWeight:600}}>{catName}</span>
+                      <span style={{fontSize:12,color:done===items.length?"var(--accent)":"var(--text3)"}}>{done}/{items.length}</span>
+                      {done===items.length&&<span style={{fontSize:14}}>✅</span>}
+                      <span style={{fontSize:11,color:"var(--text3)",marginLeft:4}}>{open?"▲":"▼"}</span>
+                    </div>
+                    {open&&(
+                      <>
+                        {items.map(item=>(
+                          <ItemRow key={item.id} item={item} tripId={activeTrip.id}
+                            myName={myName} friends={friends} fbReady={fbReady}/>
+                        ))}
+                        <div style={{padding:"9px 12px",borderTop:"1px solid var(--border)",background:"var(--surf2)",display:"flex",gap:8}}>
+                          <input className="inp" style={{flex:1,fontSize:13,padding:"7px 11px"}} placeholder="Add item to trip…"
+                            value={nim[`t-${catId}`]||""}
+                            onChange={e=>setNim(p=>({...p,[`t-${catId}`]:e.target.value}))}
+                            onKeyDown={e=>e.key==="Enter"&&addTripItem(catId,catName,catIcon)}/>
+                          <button className="btn btn-blue btn-sm" onClick={()=>addTripItem(catId,catName,catIcon)}>Add</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ════ DASHBOARD ════ */}
+        {view==="dashboard"&&activeTrip&&(
+          <div style={{padding:"16px 16px 60px",maxWidth:720,margin:"0 auto"}} className="fi">
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:18}}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setView("trip")}>← Checklist</button>
+              <span style={{fontFamily:"var(--serif)",fontSize:20,flex:1}}>{activeTrip.name}</span>
+            </div>
+
+            {/* Donut overview */}
+            <div className="card" style={{padding:20,marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:16}}>OVERVIEW</div>
+              <div style={{display:"flex",justifyContent:"space-around",flexWrap:"wrap",gap:16}}>
+                <Donut pct={stats.pct} color={activeTrip.color} sz={88} sw={8} label={`${stats.pct}%`} sub="Packed"/>
+                <Donut pct={stats.tot?~~(stats.buy/stats.tot*100):0} color="var(--warn)" sz={88} sw={8} label={String(stats.buy)} sub="To buy"/>
+                <Donut pct={stats.tot?~~(stats.asgn/stats.tot*100):0} color="var(--blue)" sz={88} sw={8} label={String(stats.asgn)} sub="Assigned"/>
+                <Donut pct={stats.tot?~~((stats.tot-stats.packed)/stats.tot*100):0} color="var(--danger)" sz={88} sw={8} label={String(stats.tot-stats.packed)} sub="Outstanding"/>
+              </div>
+            </div>
+
+            {/* Category bars */}
+            <div className="card" style={{padding:20,marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:16}}>BY CATEGORY</div>
+              <CatBars items={tripItems} color={activeTrip.color}/>
+            </div>
+
+            {/* Who has what */}
+            <div className="card" style={{padding:20,marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:16}}>WHO HAS WHAT</div>
+              <WhoHasWhat items={tripItems}/>
+            </div>
+
+            {/* Phase breakdown */}
+            <div className="card" style={{padding:20}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:16}}>BY PHASE</div>
+              {PHASES.map((ph,i)=>{
+                const its=tripItems.filter(x=>x.phase===ph);
+                if(!its.length)return null;
+                const pck=its.filter(x=>x.packed).length;
+                const pct=~~(pck/its.length*100);
+                const cl=["var(--accent)","var(--warn)","var(--blue)"][i];
+                return(
+                  <div key={ph} style={{marginBottom:14}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                      <span className={`pbadge ${PH_CLS[i]}`}>{ph}</span>
+                      <span style={{fontSize:12,color:"var(--text3)"}}>{pck}/{its.length}</span>
+                    </div>
+                    <div style={{height:7,background:"var(--bg)",borderRadius:4,overflow:"hidden"}}>
+                      <div className="bar-fill" style={{width:`${pct}%`,background:cl}}/>
+                    </div>
+                  </div>
+                );
+              })}
+              {!tripItems.some(i=>i.phase)&&(
+                <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:"8px 0"}}>
+                  No phases assigned yet. Tag items in the checklist.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ════ CHAT ════ */}
+        {view==="chat"&&activeTrip&&(
+          <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 54px)"}}>
+            <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:12}}>
+              {chatList.length===0&&(
+                <div style={{textAlign:"center",color:"var(--text3)",fontSize:13,marginTop:40,lineHeight:1.8}}>
+                  No messages yet.<br/>Kick off the conversation!
+                </div>
+              )}
+              {chatList.map(msg=>{
+                const me=msg.author===myName;
+                return(
+                  <div key={msg.id} style={{display:"flex",flexDirection:me?"row-reverse":"row",gap:8,alignItems:"flex-end"}}>
+                    {!me&&<Av name={msg.author} size={28}/>}
+                    <div style={{maxWidth:"72%"}}>
+                      {!me&&<div style={{fontSize:11,color:"var(--text3)",marginBottom:3,paddingLeft:3}}>{msg.author}</div>}
+                      <div className={me?"bubble-me":"bubble-them"} style={{padding:"10px 14px",fontSize:14,lineHeight:1.55}}>
+                        {msg.text}
+                      </div>
+                      <div style={{fontSize:10,color:"var(--text3)",marginTop:3,textAlign:me?"right":"left",paddingLeft:me?0:3}}>
+                        {ago(msg.ts)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={chatBtm}/>
+            </div>
+            <div style={{padding:"10px 14px 14px",background:"var(--surface)",borderTop:"1px solid var(--border)",
+              display:"flex",gap:8}}>
+              <input className="inp" style={{flex:1}} placeholder="Message…"
+                value={chatTxt} onChange={e=>setChatTxt(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&sendChat()}/>
+              <button className="btn btn-blue" onClick={sendChat}>Send</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
