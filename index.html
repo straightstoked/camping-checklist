@@ -551,7 +551,7 @@ function App(){
   const [fbReady,  setFbReady]  = useState(false);
   const [myName,   setMyName]   = useState(()=>lsGet("bc_name",null));
   const [inv,      setInv]      = useState(()=>lsGet("bc_inv",DEF_INV));
-  const [friends,  setFriends]  = useState(()=>lsGet("bc_friends",[]));
+  const [friends,  setFriends]  = useState([]);
   const [tmpls,    setTmpls]    = useState(()=>lsGet("bc_tmpls",[]));
   const [trips,    setTrips]    = useState([]);
   const [chats,    setChats]    = useState({});
@@ -634,6 +634,14 @@ function App(){
     });
   },[fbReady]);
 
+  // Live friends — shared across all devices via Firebase
+  useEffect(()=>{
+    if(!fbReady)return;
+    return fOn("friends",data=>{
+      setFriends(data?Object.values(data).sort((a,b)=>a.name.localeCompare(b.name)):[]);
+    });
+  },[fbReady]);
+
   // Live chat for active trip
   useEffect(()=>{
     if(!fbReady||!activeId)return;
@@ -645,7 +653,6 @@ function App(){
 
   // Persist local data
   useEffect(()=>lsSet("bc_inv",inv),[inv]);
-  useEffect(()=>lsSet("bc_friends",friends),[friends]);
   useEffect(()=>lsSet("bc_tmpls",tmpls),[tmpls]);
 
   const activeTrip = useMemo(()=>trips.find(t=>t.id===activeId)||null,[trips,activeId]);
@@ -686,6 +693,17 @@ function App(){
   const delCat   = id=>setInv(p=>p.filter(c=>c.id!==id));
   const addItem  = catId=>{ const n=(nim[catId]||"").trim(); if(!n)return; setInv(p=>p.map(c=>c.id===catId?{...c,items:[...c.items,{id:gid(),name:n,qty:1,weight:""}]}:c)); setNim(p=>({...p,[catId]:""})); notify("Item added"); };
   const delItem  = (catId,iid)=>setInv(p=>p.map(c=>c.id===catId?{...c,items:c.items.filter(i=>i.id!==iid)}:c));
+
+  // ── Friends ops (Firebase-backed, shared across all devices) ──
+  const addFriend = (name) => {
+    if(!name.trim()||!fbReady) return;
+    // Don't add duplicates
+    if(friends.some(f=>f.name.toLowerCase()===name.trim().toLowerCase())) return;
+    const id=gid();
+    fUpd("friends",{[id]:{id,name:name.trim()}});
+  };
+  const removeFriend = (id) => fDel(`friends/${id}`);
+  const renameFriend = (id,newName) => { if(newName.trim()&&fbReady) fUpd(`friends/${id}`,{name:newName.trim()}); };
 
   // ── Import ──
   const handleFile = file=>{
@@ -893,7 +911,13 @@ function LandingPage({friends,onEnter}){
     </div>
   );
 }
-  if(!myName) return <LandingPage friends={friends} onEnter={name=>{ setMyName(name); lsSet("bc_name",name); }}/>;
+  if(!myName) return <LandingPage friends={friends} onEnter={name=>{
+    setMyName(name); lsSet("bc_name",name);
+    // Save to shared Firebase friends list if not already there
+    if(fbReady && !friends.some(f=>f.name.toLowerCase()===name.toLowerCase())){
+      const id=gid(); fUpd("friends",{[id]:{id,name}});
+    }
+  }}/>;
 
   const TripTabs=()=>activeTrip?(
     <div style={{display:"flex",gap:5}}>
@@ -1013,15 +1037,16 @@ function LandingPage({friends,onEnter}){
                     <Av name={f.name} size={21}/>
                     <span style={{fontSize:13}}>{f.name}</span>
                     <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:15,lineHeight:1,cursor:"pointer",marginLeft:2}}
-                      onClick={()=>setFriends(p=>p.filter(x=>x.id!==f.id))}>×</button>
+                      onClick={()=>removeFriend(f.id)}>×</button>
                   </div>
                 ))}
               </div>
               <div style={{display:"flex",gap:8}}>
                 <input className="inp" placeholder="Add friend…" value={newFrd} style={{flex:1}}
-                  onChange={e=>setNewFrd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&newFrd.trim()&&(setFriends(p=>[...p,{id:gid(),name:newFrd.trim()}]),setNewFrd(""),notify("Friend added"))}/>
+                  onChange={e=>setNewFrd(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"&&newFrd.trim()){ addFriend(newFrd); setNewFrd(""); notify("Friend added"); } }}/>
                 <button className="btn btn-blue btn-sm"
-                  onClick={()=>newFrd.trim()&&(setFriends(p=>[...p,{id:gid(),name:newFrd.trim()}]),setNewFrd(""),notify("Friend added"))}>
+                  onClick={()=>{ if(newFrd.trim()){ addFriend(newFrd); setNewFrd(""); notify("Friend added"); } }}>
                   Add
                 </button>
               </div>
@@ -1181,9 +1206,9 @@ function LandingPage({friends,onEnter}){
               <div style={{display:"flex",gap:8}}>
                 <input className="inp" placeholder="Enter name…" value={newFrd} style={{flex:1}}
                   onChange={e=>setNewFrd(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&newFrd.trim()&&(setFriends(p=>[...p,{id:gid(),name:newFrd.trim()}]),setNewFrd(""),notify("Friend added"))}/>
+                  onKeyDown={e=>{ if(e.key==="Enter"&&newFrd.trim()){ addFriend(newFrd); setNewFrd(""); notify("Friend added"); } }}/>
                 <button className="btn btn-blue btn-sm"
-                  onClick={()=>newFrd.trim()&&(setFriends(p=>[...p,{id:gid(),name:newFrd.trim()}]),setNewFrd(""),notify("Friend added"))}>
+                  onClick={()=>{ if(newFrd.trim()){ addFriend(newFrd); setNewFrd(""); notify("Friend added"); } }}>
                   Add
                 </button>
               </div>
@@ -1202,8 +1227,8 @@ function LandingPage({friends,onEnter}){
                     const tripCount=trips.filter(t=>Object.values(t.items||{}).some(item=>item.assignedTo===f.name)).length;
                     return(
                       <FriendRow key={f.id} f={f} tripCount={tripCount}
-                        onRename={newName=>{ setFriends(p=>p.map(x=>x.id===f.id?{...x,name:newName}:x)); notify("Name updated"); }}
-                        onDelete={()=>{ if(confirm(`Remove ${f.name}?`)) setFriends(p=>p.filter(x=>x.id!==f.id)); }}/>
+                        onRename={newName=>{ renameFriend(f.id,newName); notify("Name updated"); }}
+                        onDelete={()=>{ if(confirm(`Remove ${f.name}?`)) removeFriend(f.id); }}/>
                     );
                   })}
                 </div>
