@@ -545,16 +545,63 @@ function App(){
   const chatBtm  = useRef();
 
   const notify = m => { setToast(m); setTimeout(()=>setToast(null),2500); };
-  const goTrip = (id,v="trip") => { setActiveId(id); setView(v); setSideOpen(false); };
+
+  // ── History-aware navigation ──────────────────────────────────────────────
+  // Every navigate() call pushes a browser history entry so back/forward works.
+  const navigate = useCallback((newView, newActiveId=null, opts={})=>{
+    const state = { view: newView, activeId: newActiveId };
+    // Build a clean URL: /path?trip=id or /path?view=inventory etc
+    const url = new URL(location.href);
+    url.searchParams.delete("trip");
+    url.searchParams.delete("view");
+    if(newActiveId) url.searchParams.set("trip", newActiveId);
+    else if(newView!=="home") url.searchParams.set("view", newView);
+    if(opts.replace) history.replaceState(state, "", url);
+    else history.pushState(state, "", url);
+    setView(newView);
+    setActiveId(newActiveId);
+    setSideOpen(false);
+  },[]);
+
+  const goTrip = (id, v="trip") => navigate(v, id);
+
+  // Listen for browser back/forward
+  useEffect(()=>{
+    const onPop = e => {
+      if(e.state){
+        setView(e.state.view||"home");
+        setActiveId(e.state.activeId||null);
+      } else {
+        // No state = landed on bare URL, parse from search params
+        const params = new URLSearchParams(location.search);
+        const tid = params.get("trip");
+        const v   = params.get("view")||"home";
+        setView(tid?"trip":v);
+        setActiveId(tid||null);
+      }
+      setSideOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return ()=>window.removeEventListener("popstate", onPop);
+  },[]);
+
+  // Seed initial history state on first load so back works from first page
+  useEffect(()=>{
+    const params = new URLSearchParams(location.search);
+    const tid = params.get("trip");
+    const v   = params.get("view")||"home";
+    const initialView   = tid?"trip":v;
+    const initialActive = tid||null;
+    history.replaceState({ view:initialView, activeId:initialActive }, "", location.href);
+    if(tid){ setView("trip"); setActiveId(tid); }
+    else if(v!=="home"){ setView(v); }
+  },[]);
 
   // Firebase ready
   useEffect(()=>{
     if(window.__fb) setFbReady(true);
     else { const h=()=>setFbReady(true); window.addEventListener("fb-ready",h); return ()=>window.removeEventListener("fb-ready",h); }
   },[]);
-
-  // URL deep-link
-  useEffect(()=>{ const t=urlTrip(); if(t&&fbReady){ setActiveId(t); setView("trip"); } },[fbReady]);
 
   // Live trips
   useEffect(()=>{
@@ -659,10 +706,10 @@ tripItems.filter(i=>{
     });
     const t={id:gid(),name,color,createdAt:ts(),items};
     await fSet(`trips/${t.id}`,t);
-    goTrip(t.id); setNewTrip(""); setShowNT(false); setShowTmpl(false);
+    navigate("trip", t.id); setNewTrip(""); setShowNT(false); setShowTmpl(false);
     notify(`"${name}" created!`);
   };
-  const deleteTrip = async id=>{ await fDel(`trips/${id}`); if(activeId===id){setActiveId(null);setView("trips");} notify("Trip deleted"); };
+  const deleteTrip = async id=>{ await fDel(`trips/${id}`); if(activeId===id) navigate("trips"); notify("Trip deleted"); };
   const saveTemplate = ()=>{
     if(!activeTrip)return;
     const cats=[...new Set(tripItems.map(i=>i.catId))].map(cid=>({
@@ -692,13 +739,13 @@ tripItems.filter(i=>{
   const SB=()=>(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
       <div style={{padding:"22px 18px 10px",display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}
-        onClick={()=>{ setView("home"); setActiveId(null); setSideOpen(false); }}>
+        onClick={()=>navigate("home")}>
         <span style={{fontSize:22}}>⛺</span>
         <span style={{fontFamily:"var(--serif)",fontSize:17,letterSpacing:.3}}>Base Camp</span>
       </div>
       <div style={{padding:"0 10px",flex:1}}>
         {[["home","🏠","Home"],["inventory","🎒","My Gear"],["friends","👥","Friends"],["trips","🗺️","Trips"]].map(([v,ic,lb])=>(
-          <button key={v} onClick={()=>{ setView(v); setActiveId(null); setSideOpen(false); }}
+          <button key={v} onClick={()=>navigate(v)}
             style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
               borderRadius:10,border:"none",textAlign:"left",fontSize:14,fontWeight:500,marginBottom:2,
               background:(view===v&&!activeId)?"var(--bg)":"transparent",
@@ -759,7 +806,7 @@ tripItems.filter(i=>{
   const TripTabs=()=>activeTrip?(
     <div style={{display:"flex",gap:5}}>
       {[["trip","✓ List"],["dashboard","📊"],["chat","💬"]].map(([v,lb])=>(
-        <button key={v} onClick={()=>setView(v)}
+        <button key={v} onClick={()=>navigate(v, activeId)}
           style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:"none",fontWeight:500,
             background:view===v?"var(--blue)":"var(--surf2)",
             color:view===v?"#fff":"var(--text2)"}}>
@@ -791,7 +838,7 @@ tripItems.filter(i=>{
           {/* Home button — visible on all sub-pages */}
           {(view!=="home"||activeId)&&(
             <button className="btn-icon" title="Home"
-              onClick={()=>{ setView("home"); setActiveId(null); setSideOpen(false); }}
+              onClick={()=>navigate("home")}
               style={{fontSize:14}}>🏠</button>
           )}
           <span style={{fontFamily:"var(--serif)",fontSize:16,flex:1,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
@@ -814,7 +861,7 @@ tripItems.filter(i=>{
                 {ic:"📋",v:tmpls.length,                          lb:"Templates",   cl:"var(--purple)", dest:"trips"},
               ].map(s=>(
                 <div key={s.lb} className="card fi" style={{padding:"16px 16px",cursor:"pointer",transition:"transform .15s,box-shadow .15s"}}
-                  onClick={()=>{ setView(s.dest); setActiveId(null); if(s.dest==="trips"&&s.lb==="Templates") setShowTmpl(true); }}
+                  onClick={()=>{ navigate(s.dest); if(s.dest==="trips"&&s.lb==="Templates") setShowTmpl(true); }}
                   onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,.1)";}}
                   onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow="";}}>
                   <div style={{fontSize:22,marginBottom:6}}>{s.ic}</div>
@@ -850,9 +897,9 @@ tripItems.filter(i=>{
 
             <div className="slabel">QUICK ACTIONS</div>
             <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
-              <button className="btn btn-green" onClick={()=>{setView("trips");setShowNT(true);}}>+ New Trip</button>
-              <button className="btn btn-ghost" onClick={()=>setView("inventory")}>Manage Gear</button>
-              {tmpls.length>0&&<button className="btn btn-ghost" onClick={()=>{setView("trips");setShowTmpl(true);}}>📋 Templates</button>}
+              <button className="btn btn-green" onClick={()=>{navigate("trips");setShowNT(true);}}>+ New Trip</button>
+              <button className="btn btn-ghost" onClick={()=>navigate("inventory")}>Manage Gear</button>
+              {tmpls.length>0&&<button className="btn btn-ghost" onClick={()=>{navigate("trips");setShowTmpl(true);}}>📋 Templates</button>}
             </div>
           </div>
         )}
@@ -1074,7 +1121,7 @@ tripItems.filter(i=>{
             <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
               <button className="btn btn-ghost btn-sm" onClick={saveTemplate}>📋 Save as template</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>{navigator.clipboard?.writeText(shareUrl);notify("Link copied!");}}>🔗 Share link</button>
-              <button className="btn btn-ghost btn-sm" onClick={()=>{setActiveId(null);setView("trips");}}>← Trips</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>navigate("trips")}>← Trips</button>
             </div>
 
             {/* Progress card */}
@@ -1177,7 +1224,7 @@ tripItems.filter(i=>{
         {view==="dashboard"&&activeTrip&&(
           <div style={{padding:"16px 16px 60px",maxWidth:720,margin:"0 auto"}} className="fi">
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:18}}>
-              <button className="btn btn-ghost btn-sm" onClick={()=>setView("trip")}>← Checklist</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>navigate("trip",activeId)}>← Checklist</button>
               <span style={{fontFamily:"var(--serif)",fontSize:20,flex:1}}>{activeTrip.name}</span>
             </div>
 
