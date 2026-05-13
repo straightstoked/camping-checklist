@@ -566,6 +566,83 @@ function ItemRow({item,tripId,myName,friends,fbReady}){
   );
 }
 
+// ── Trip members panel — proper component so useState is legal ────────────────
+function TripMembers({activeTrip,friends,tripFriends,notify}){
+  const [editOpen,setEditOpen] = useState(false);
+  const mids      = activeTrip.members||[];
+  const onTrip    = friends.filter(f=>mids.includes(f.id));
+  const allSelected = friends.length>0 && friends.every(f=>mids.includes(f.id));
+
+  if(!friends.length) return null;
+  return(
+    <div className="card" style={{marginBottom:14,overflow:"hidden"}}>
+      {/* Always-visible: current members as avatar chips */}
+      <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:600,color:"var(--text2)",flexShrink:0}}>👥 On this trip:</span>
+        {onTrip.length===0?(
+          <span style={{fontSize:12,color:"var(--text3)",flex:1}}>No one assigned yet</span>
+        ):(
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,flex:1}}>
+            {onTrip.map(f=>(
+              <span key={f.id} style={{display:"flex",alignItems:"center",gap:4,
+                background:"#EEF5FF",borderRadius:20,padding:"3px 10px 3px 5px",
+                fontSize:12,fontWeight:500,color:"var(--blue)"}}>
+                <Av name={f.name} size={18}/>{f.name}
+              </span>
+            ))}
+          </div>
+        )}
+        <button onClick={()=>setEditOpen(p=>!p)}
+          style={{fontSize:11,color:"var(--blue)",background:"none",border:"1px solid var(--blue)",
+            borderRadius:6,cursor:"pointer",padding:"3px 9px",fontWeight:500,flexShrink:0,marginLeft:"auto"}}>
+          {editOpen?"Done":"Edit"}
+        </button>
+      </div>
+
+      {/* Collapsible editor */}
+      {editOpen&&(
+        <div style={{borderTop:"1px solid var(--border)",padding:"12px 14px",background:"var(--surf2)"}} className="fi">
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <span style={{fontSize:11,fontWeight:600,letterSpacing:.6,color:"var(--text3)",flex:1}}>MANAGE MEMBERS</span>
+            <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",cursor:"pointer",fontWeight:500}}
+              onClick={()=>{
+                const all=friends.map(f=>f.id);
+                fUpd(`trips/${activeTrip.id}`,{members:allSelected?[]:all});
+                notify(allSelected?"Cleared all":"All friends added");
+              }}>
+              {allSelected?"Remove all":"Add all"}
+            </button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {friends.map(f=>{
+              const sel=mids.includes(f.id);
+              return(
+                <div key={f.id} style={{display:"flex",alignItems:"center",gap:9,
+                  padding:"7px 10px",borderRadius:9,background:"var(--surface)",border:"1px solid var(--border)"}}>
+                  <Av name={f.name} size={26}/>
+                  <span style={{flex:1,fontSize:13,fontWeight:500,color:"var(--text)"}}>{f.name}</span>
+                  <button
+                    onClick={()=>{
+                      const next=sel?mids.filter(x=>x!==f.id):[...mids,f.id];
+                      fUpd(`trips/${activeTrip.id}`,{members:next});
+                    }}
+                    style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:7,
+                      border:"1.5px solid",cursor:"pointer",transition:"all .12s",
+                      borderColor:sel?"var(--danger)":"var(--blue)",
+                      color:sel?"var(--danger)":"var(--blue)",
+                      background:sel?"#FFF0F0":"#EEF5FF"}}>
+                    {sel?"Remove":"Add"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Friend row with inline rename ────────────────────────────────────────────
 function FriendRow({f,tripCount,onRename,onDelete}){
   const [editing,setEditing]=useState(false);
@@ -634,6 +711,89 @@ function ConflictModal({conflicts,onResolve,onClose}){
             onClick={()=>onResolve(dec)}>
             Apply & Import
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Landing page — proper component so hooks are legal ───────────────────────
+function LandingPage({friends,onEnter}){
+  const [n,setN]         = useState("");
+  const [focused,setFoc] = useState(false);
+  const confirm = name => { const v=(name||n).trim(); if(!v) return; onEnter(v); };
+  const filtered = friends.filter(f =>
+    n && f.name.toLowerCase().includes(n.toLowerCase()) &&
+    f.name.toLowerCase() !== n.toLowerCase()
+  );
+  return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:"var(--bg)"}}>
+      <div className="card pop" style={{padding:"36px 30px",maxWidth:400,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:52,marginBottom:12}}>⛺</div>
+        <div style={{fontFamily:"var(--serif)",fontSize:26,marginBottom:6}}>Base Camp</div>
+        <div style={{fontSize:14,color:"var(--text2)",marginBottom:24,lineHeight:1.7}}>Who's joining camp today?</div>
+        <div style={{textAlign:"left"}}>
+          {/* Admin buttons */}
+          <div style={{marginBottom:18,textAlign:"center"}}>
+            <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>ADMIN</div>
+            <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+              {ADMIN_NAMES.map(name=>(
+                <button key={name} onClick={()=>confirm(name)}
+                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px 8px 10px",
+                    borderRadius:24,border:"2px solid var(--blue)",background:"#EEF5FF",
+                    cursor:"pointer",fontSize:14,fontWeight:600,color:"var(--blue)"}}>
+                  <Av name={name} size={28}/>{name}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Crew chips */}
+          {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).length>0&&(
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10,textAlign:"center"}}>YOUR CREW</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
+                {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).map(f=>(
+                  <button key={f.id} onClick={()=>confirm(f.name)}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px 6px 8px",
+                      borderRadius:20,border:"1.5px solid var(--border)",background:"var(--surf2)",
+                      cursor:"pointer",fontSize:13,fontWeight:500,color:"var(--text)",transition:"all .15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--blue)";e.currentTarget.style.background="#EEF5FF";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--surf2)";}}>
+                    <Av name={f.name} size={22}/>{f.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Type / autocomplete */}
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:8,textAlign:"center"}}>
+            {friends.length>0?"— OR TYPE A NAME —":"ENTER YOUR NAME"}
+          </div>
+          <div style={{position:"relative"}}>
+            <input className="inp" style={{textAlign:"center",fontSize:15,marginBottom:8}}
+              placeholder="Type name…" value={n}
+              onChange={e=>setN(e.target.value)}
+              onFocus={()=>setFoc(true)}
+              onBlur={()=>setTimeout(()=>setFoc(false),150)}
+              onKeyDown={e=>e.key==="Enter"&&confirm()}/>
+            {focused&&filtered.length>0&&(
+              <div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--surface)",
+                border:"1px solid var(--border)",borderRadius:10,boxShadow:"var(--sh-lg)",
+                zIndex:50,overflow:"hidden",marginTop:2}}>
+                {filtered.map(f=>(
+                  <div key={f.id} onMouseDown={()=>confirm(f.name)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+                      cursor:"pointer",fontSize:14}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--surf2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <Av name={f.name} size={24}/>{f.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="btn btn-blue" style={{width:"100%",padding:12,fontSize:15}}
+            onClick={()=>confirm()}>Enter Camp →</button>
         </div>
       </div>
     </div>
@@ -953,88 +1113,7 @@ function App(){
     </div>
   );
 
-// ── Landing page — proper component so hooks are legal ───────────────────────
-function LandingPage({friends,onEnter}){
-  const [n,setN]         = useState("");
-  const [focused,setFoc] = useState(false);
-  const confirm = name => { const v=(name||n).trim(); if(!v) return; onEnter(v); };
-  const filtered = friends.filter(f =>
-    n && f.name.toLowerCase().includes(n.toLowerCase()) &&
-    f.name.toLowerCase() !== n.toLowerCase()
-  );
-  return(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:"var(--bg)"}}>
-      <div className="card pop" style={{padding:"36px 30px",maxWidth:400,width:"100%",textAlign:"center"}}>
-        <div style={{fontSize:52,marginBottom:12}}>⛺</div>
-        <div style={{fontFamily:"var(--serif)",fontSize:26,marginBottom:6}}>Base Camp</div>
-        <div style={{fontSize:14,color:"var(--text2)",marginBottom:24,lineHeight:1.7}}>Who's joining camp today?</div>
-        <div style={{textAlign:"left"}}>
-          {/* Admin buttons */}
-          <div style={{marginBottom:18,textAlign:"center"}}>
-            <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>ADMIN</div>
-            <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-              {ADMIN_NAMES.map(name=>(
-                <button key={name} onClick={()=>confirm(name)}
-                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px 8px 10px",
-                    borderRadius:24,border:"2px solid var(--blue)",background:"#EEF5FF",
-                    cursor:"pointer",fontSize:14,fontWeight:600,color:"var(--blue)"}}>
-                  <Av name={name} size={28}/>{name}
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* Crew chips */}
-          {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).length>0&&(
-            <div style={{marginBottom:18}}>
-              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10,textAlign:"center"}}>YOUR CREW</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
-                {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).map(f=>(
-                  <button key={f.id} onClick={()=>confirm(f.name)}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px 6px 8px",
-                      borderRadius:20,border:"1.5px solid var(--border)",background:"var(--surf2)",
-                      cursor:"pointer",fontSize:13,fontWeight:500,color:"var(--text)",transition:"all .15s"}}
-                    onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--blue)";e.currentTarget.style.background="#EEF5FF";}}
-                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--surf2)";}}>
-                    <Av name={f.name} size={22}/>{f.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {/* Type / autocomplete */}
-          <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:8,textAlign:"center"}}>
-            {friends.length>0?"— OR TYPE A NAME —":"ENTER YOUR NAME"}
-          </div>
-          <div style={{position:"relative"}}>
-            <input className="inp" style={{textAlign:"center",fontSize:15,marginBottom:8}}
-              placeholder="Type name…" value={n}
-              onChange={e=>setN(e.target.value)}
-              onFocus={()=>setFoc(true)}
-              onBlur={()=>setTimeout(()=>setFoc(false),150)}
-              onKeyDown={e=>e.key==="Enter"&&confirm()}/>
-            {focused&&filtered.length>0&&(
-              <div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--surface)",
-                border:"1px solid var(--border)",borderRadius:10,boxShadow:"var(--sh-lg)",
-                zIndex:50,overflow:"hidden",marginTop:2}}>
-                {filtered.map(f=>(
-                  <div key={f.id} onMouseDown={()=>confirm(f.name)}
-                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
-                      cursor:"pointer",fontSize:14}}
-                    onMouseEnter={e=>e.currentTarget.style.background="var(--surf2)"}
-                    onMouseLeave={e=>e.currentTarget.style.background=""}>
-                    <Av name={f.name} size={24}/>{f.name}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <button className="btn btn-blue" style={{width:"100%",padding:12,fontSize:15}}
-            onClick={()=>confirm()}>Enter Camp →</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+
   if(!myName) return <LandingPage friends={friends} onEnter={name=>{
     setMyName(name); lsSet("bc_name",name);
     // Save to shared Firebase friends list if not already there
@@ -1155,31 +1234,6 @@ function LandingPage({friends,onEnter}){
               <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
                 onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value="";}}/>
               <button className="btn btn-blue btn-sm" onClick={()=>setShowAC(p=>!p)}>+ Category</button>
-            </div>
-
-            {/* Friends */}
-            <div className="slabel">FRIENDS</div>
-            <div className="card" style={{marginBottom:20,padding:"14px 16px"}}>
-              <div style={{display:"flex",flexWrap:"wrap",gap:7,marginBottom:friends.length?12:0}}>
-                {friends.map(f=>(
-                  <div key={f.id} style={{display:"flex",alignItems:"center",gap:6,background:"var(--surf2)",
-                    border:"1px solid var(--border)",borderRadius:20,padding:"4px 12px 4px 7px"}}>
-                    <Av name={f.name} size={21}/>
-                    <span style={{fontSize:13}}>{f.name}</span>
-                    <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:15,lineHeight:1,cursor:"pointer",marginLeft:2}}
-                      onClick={()=>removeFriend(f.id)}>×</button>
-                  </div>
-                ))}
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <input className="inp" placeholder="Add friend…" value={newFrd} style={{flex:1}}
-                  onChange={e=>setNewFrd(e.target.value)}
-                  onKeyDown={e=>{ if(e.key==="Enter"&&newFrd.trim()){ addFriend(newFrd); setNewFrd(""); notify("Friend added"); } }}/>
-                <button className="btn btn-blue btn-sm"
-                  onClick={()=>{ if(newFrd.trim()){ addFriend(newFrd); setNewFrd(""); notify("Friend added"); } }}>
-                  Add
-                </button>
-              </div>
             </div>
 
             {showAC&&(
@@ -1512,87 +1566,8 @@ function LandingPage({friends,onEnter}){
             </div>
 
             {/* Members — compact display with collapsible editor */}
-            {friends.length>0&&(()=>{
-              const mids        = activeTrip.members||[];
-              const onTrip      = friends.filter(f=>mids.includes(f.id));
-              const notOnTrip   = friends.filter(f=>!mids.includes(f.id));
-              const allSelected = friends.every(f=>mids.includes(f.id));
-              const [editOpen, setEditOpen] = React.useState(false);
-              return(
-                <div className="card" style={{marginBottom:14,overflow:"hidden"}}>
-                  {/* Always-visible: current members as avatar row */}
-                  <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:12,fontWeight:600,color:"var(--text2)",flexShrink:0}}>
-                      👥 On this trip:
-                    </span>
-                    {onTrip.length===0?(
-                      <span style={{fontSize:12,color:"var(--text3)"}}>No one assigned yet</span>
-                    ):(
-                      <div style={{display:"flex",flexWrap:"wrap",gap:5,flex:1}}>
-                        {onTrip.map(f=>(
-                          <span key={f.id} style={{display:"flex",alignItems:"center",gap:4,
-                            background:"#EEF5FF",borderRadius:20,padding:"3px 10px 3px 5px",
-                            fontSize:12,fontWeight:500,color:"var(--blue)"}}>
-                            <Av name={f.name} size={18}/>{f.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <button onClick={()=>setEditOpen(p=>!p)}
-                      style={{fontSize:11,color:"var(--blue)",background:"none",border:"1px solid var(--blue)",
-                        borderRadius:6,cursor:"pointer",padding:"3px 9px",fontWeight:500,flexShrink:0,
-                        marginLeft:"auto"}}>
-                      {editOpen?"Done":"Edit"}
-                    </button>
-                  </div>
-
-                  {/* Collapsible editor */}
-                  {editOpen&&(
-                    <div style={{borderTop:"1px solid var(--border)",padding:"12px 14px",background:"var(--surf2)"}}
-                      className="fi">
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                        <span style={{fontSize:11,fontWeight:600,letterSpacing:.6,color:"var(--text3)",flex:1}}>
-                          MANAGE MEMBERS
-                        </span>
-                        <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",
-                          cursor:"pointer",fontWeight:500}}
-                          onClick={()=>{
-                            const all=friends.map(f=>f.id);
-                            fUpd(`trips/${activeTrip.id}`,{members:allSelected?[]:all});
-                            notify(allSelected?"Cleared all":"All friends added");
-                          }}>
-                          {allSelected?"Remove all":"Add all"}
-                        </button>
-                      </div>
-                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                        {friends.map(f=>{
-                          const sel=mids.includes(f.id);
-                          return(
-                            <div key={f.id} style={{display:"flex",alignItems:"center",gap:9,
-                              padding:"7px 10px",borderRadius:9,background:"var(--surface)",
-                              border:"1px solid var(--border)"}}>
-                              <Av name={f.name} size={26}/>
-                              <span style={{flex:1,fontSize:13,fontWeight:500,color:"var(--text)"}}>{f.name}</span>
-                              <button onClick={()=>{
-                                  const next=sel?mids.filter(x=>x!==f.id):[...mids,f.id];
-                                  fUpd(`trips/${activeTrip.id}`,{members:next});
-                                }}
-                                style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:7,
-                                  border:"1.5px solid",cursor:"pointer",transition:"all .12s",
-                                  borderColor:sel?"var(--danger)":"var(--blue)",
-                                  color:sel?"var(--danger)":"var(--blue)",
-                                  background:sel?"#FFF0F0":"#EEF5FF"}}>
-                                {sel?"Remove":"Add"}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            <TripMembers activeTrip={activeTrip} friends={friends}
+              tripFriends={tripFriends} notify={notify}/>
 
             {/* Progress card */}
             <div className="card" style={{padding:"16px 18px",marginBottom:14,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
