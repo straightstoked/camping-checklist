@@ -419,6 +419,12 @@ function NoteThread({tripId,itemId,notes,myName,fbReady}){
 // ── Trip item row ─────────────────────────────────────────────────────────────
 function ItemRow({item,tripId,myName,friends,fbReady}){
   const u=patch=>fbReady&&fUpd(`trips/${tripId}/items/${item.id}`,patch);
+  // Build the full who's-bringing list: you first, then trip members (excluding you if already in friends)
+  const whoList = [
+    {id:"__me",name:myName},
+    ...friends.filter(f=>f.name!==myName),
+  ];
+  const assignedName = item.assignedTo || null;
   return(
     <div className={item.packed?"packed-row":""} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",transition:"background .18s"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:11}}>
@@ -430,31 +436,44 @@ function ItemRow({item,tripId,myName,friends,fbReady}){
             {item.qty>1&&<span style={{fontSize:12,color:"var(--text3)"}}>×{item.qty}</span>}
             {item.weight&&<span className="pill p-gray" style={{fontSize:11}}>{item.weight}</span>}
             {!item.packed&&item.needsBuy&&<span className="pill p-orange">🛒 Needs buying</span>}
-            {!item.packed&&item.assignedTo&&<span className="pill p-blue">👤 {item.assignedTo}</span>}
-            {!item.packed&&item.someoneElse&&!item.assignedTo&&<span className="pill p-gray">Someone else</span>}
+            {!item.packed&&assignedName&&assignedName!==myName&&<span className="pill p-blue">👤 {assignedName}</span>}
+            {!item.packed&&assignedName===myName&&<span className="pill p-green">👤 Me</span>}
           </div>
           {item.packed&&item.packedBy&&(
             <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>✓ Packed by {item.packedBy}</div>
           )}
           {!item.packed&&(
             <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:8,alignItems:"center"}}>
+              {/* Needs buying checkbox */}
               <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:12,color:"var(--text2)"}}>
                 <input type="checkbox" checked={!!item.needsBuy} style={{width:14,height:14,accentColor:"var(--warn)"}}
                   onChange={e=>u({needsBuy:e.target.checked})}/>
                 Needs buying
               </label>
-              <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:12,color:"var(--text2)"}}>
-                <input type="checkbox" checked={!!item.someoneElse} style={{width:14,height:14}}
-                  onChange={e=>u({someoneElse:e.target.checked,assignedTo:e.target.checked?item.assignedTo:null})}/>
-                Someone else
-              </label>
+              {/* Single "Who's bringing?" dropdown — replaces someoneElse + assign */}
               <select style={{fontSize:12,background:"var(--surf2)",border:"1px solid var(--border)",
-                borderRadius:7,padding:"3px 8px",color:item.assignedTo?"var(--text)":"var(--text2)",cursor:"pointer",maxWidth:160}}
-                value={item.assignedTo||""}
-                onChange={e=>u({assignedTo:e.target.value||null,someoneElse:!!e.target.value})}>
-                <option value="">Assign to…</option>
-                {friends.map(f=><option key={f.id} value={f.name}>{f.name}</option>)}
+                borderRadius:7,padding:"3px 8px",
+                color:assignedName?"var(--text)":"var(--text2)",
+                cursor:"pointer",maxWidth:180}}
+                value={assignedName||""}
+                onChange={e=>{
+                  const val=e.target.value;
+                  u({assignedTo:val||null,someoneElse:!!val&&val!==myName});
+                }}>
+                <option value="">Who's bringing?</option>
+                {whoList.map(p=>(
+                  <option key={p.id} value={p.name}>
+                    {p.name===myName?`${p.name} (me)`:p.name}
+                  </option>
+                ))}
               </select>
+              {assignedName&&(
+                <button style={{fontSize:11,color:"var(--text3)",background:"none",border:"none",
+                  cursor:"pointer",padding:0,lineHeight:1}}
+                  onClick={()=>u({assignedTo:null,someoneElse:false})}>
+                  ✕ clear
+                </button>
+              )}
             </div>
           )}
           <NoteThread tripId={tripId} itemId={item.id} notes={item.notes}
@@ -564,6 +583,7 @@ function App(){
   const [showAC,   setShowAC]   = useState(false);
   const [showNT,   setShowNT]   = useState(false);
   const [showTmpl, setShowTmpl] = useState(false);
+  const [tripMembers, setTripMembers] = useState([]); // friend ids selected for new trip
   const fileRef  = useRef();
   const chatBtm  = useRef();
 
@@ -679,8 +699,13 @@ function App(){
 
   const chatList = useMemo(()=>Object.values(chats).sort((a,b)=>a.ts-b.ts),[chats]);
   const shareUrl = activeId?`${location.origin}${location.pathname}?trip=${activeId}`:"";
-
-  // ── Inventory ops ──
+  // Friends available for this trip — filtered to trip members, or all friends if none set
+  const tripFriends = useMemo(()=>{
+    if(!activeTrip) return friends;
+    const mids = activeTrip.members;
+    if(!mids||!Array.isArray(mids)||!mids.length) return friends;
+    return friends.filter(f=>mids.includes(f.id));
+  },[activeTrip,friends]);
   const addCat   = ()=>{ if(!newCat.trim())return; setInv(p=>[...p,{id:gid(),name:newCat.trim(),icon:"📦",items:[]}]); setNewCat(""); setShowAC(false); notify("Category added"); };
   const delCat   = id=>setInv(p=>p.filter(c=>c.id!==id));
   const addItem  = catId=>{ const n=(nim[catId]||"").trim(); if(!n)return; setInv(p=>p.map(c=>c.id===catId?{...c,items:[...c.items,{id:gid(),name:n,qty:1,weight:""}]}:c)); setNim(p=>({...p,[catId]:""})); notify("Item added"); };
@@ -736,9 +761,11 @@ function App(){
     (tmpl?tmpl.cats:inv).forEach(cat=>{
       cat.items.forEach(item=>{ const id=gid(); items[id]={id,catId:cat.id,catName:cat.name,catIcon:cat.icon,name:item.name,qty:item.qty||1,weight:item.weight||"",packed:false,needsBuy:false,someoneElse:false,assignedTo:null,notes:{}}; });
     });
-    const t={id:gid(),name,color,createdAt:ts(),items};
+    const t={id:gid(),name,color,createdAt:ts(),
+      members: tripMembers.length>0 ? tripMembers : friends.map(f=>f.id),
+      items};
     await fSet(`trips/${t.id}`,t);
-    navigate("trip",t.id); setNewTrip(""); setShowNT(false); setShowTmpl(false);
+    navigate("trip",t.id); setNewTrip(""); setTripMembers([]); setShowNT(false); setShowTmpl(false);
     notify(`"${name}" created!`);
   };
   const deleteTrip = async id=>{ await fDel(`trips/${id}`); if(activeId===id) navigate("trips"); notify("Trip deleted"); };
@@ -1113,13 +1140,47 @@ function LandingPage({friends,onEnter}){
             </div>
 
             {showNT&&(
-              <div className="card" style={{marginBottom:14,padding:16}} className="fi">
-                <div style={{fontSize:13,color:"var(--text2)",marginBottom:10,fontWeight:500}}>Name your adventure — pulls gear from your inventory</div>
-                <div style={{display:"flex",gap:8}}>
+              <div className="card fi" style={{marginBottom:14,padding:16}}>
+                <div style={{fontSize:13,color:"var(--text2)",marginBottom:12,fontWeight:500}}>Name your adventure</div>
+                <div style={{display:"flex",gap:8,marginBottom: friends.length>0?14:0}}>
                   <input className="inp" placeholder="e.g. Yosemite June 2026" autoFocus value={newTrip}
                     onChange={e=>setNewTrip(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createTrip()}/>
-                  <button className="btn btn-green btn-sm" onClick={()=>createTrip()}>Create</button>
-                  <button className="btn btn-ghost btn-sm" onClick={()=>setShowNT(false)}>Cancel</button>
+                </div>
+                {friends.length>0&&(
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>
+                      WHO'S COMING? <span style={{fontWeight:400,color:"var(--text3)",letterSpacing:0}}>(select all that apply)</span>
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                      {friends.map(f=>{
+                        const sel=tripMembers.includes(f.id);
+                        return(
+                          <button key={f.id} onClick={()=>setTripMembers(p=>sel?p.filter(x=>x!==f.id):[...p,f.id])}
+                            style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px 5px 7px",
+                              borderRadius:20,border:"1.5px solid",cursor:"pointer",fontSize:13,fontWeight:500,
+                              transition:"all .15s",
+                              borderColor:sel?"var(--blue)":"var(--border)",
+                              background:sel?"#EEF5FF":"var(--surf2)",
+                              color:sel?"var(--blue)":"var(--text2)"}}>
+                            <Av name={f.name} size={20}/>
+                            {f.name}
+                            {sel&&<span style={{fontSize:11}}>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {tripMembers.length===0&&(
+                      <div style={{fontSize:11,color:"var(--text3)",marginTop:7}}>
+                        No one selected — all friends will be available in the assign dropdown.
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn btn-green btn-sm" onClick={()=>createTrip()}>
+                    Create {tripMembers.length>0?`with ${tripMembers.length} member${tripMembers.length>1?"s":""}` : "trip"}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>{setShowNT(false);setTripMembers([]);}}>Cancel</button>
                 </div>
               </div>
             )}
@@ -1232,11 +1293,56 @@ function LandingPage({friends,onEnter}){
         {view==="trip"&&activeTrip&&(
           <div style={{padding:"16px 16px 60px",maxWidth:720,margin:"0 auto"}} className="fi">
             {/* Actions */}
-            <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap"}}>
               <button className="btn btn-ghost btn-sm" onClick={saveTemplate}>📋 Save as template</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>{navigator.clipboard?.writeText(shareUrl);notify("Link copied!");}}>🔗 Share link</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>navigate("trips")}>← Trips</button>
             </div>
+
+            {/* Members editor */}
+            {(()=>{
+              const mids = activeTrip.members||[];
+              const allSelected = friends.length>0 && friends.every(f=>mids.includes(f.id));
+              return friends.length>0&&(
+                <div className="card" style={{padding:"12px 14px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                    <span style={{fontSize:12,fontWeight:600,color:"var(--text2)",flex:1}}>
+                      👥 Who's on this trip ({tripFriends.length} of {friends.length})
+                    </span>
+                    <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",cursor:"pointer",fontWeight:500}}
+                      onClick={()=>{
+                        const all=friends.map(f=>f.id);
+                        fUpd(`trips/${activeTrip.id}`,{members:allSelected?[]:all});
+                        notify(allSelected?"Cleared all members":"All friends added");
+                      }}>
+                      {allSelected?"Clear all":"Add all"}
+                    </button>
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {friends.map(f=>{
+                      const sel=mids.includes(f.id);
+                      return(
+                        <button key={f.id}
+                          onClick={()=>{
+                            const next=sel?mids.filter(x=>x!==f.id):[...mids,f.id];
+                            fUpd(`trips/${activeTrip.id}`,{members:next});
+                          }}
+                          style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 6px",
+                            borderRadius:20,border:"1.5px solid",cursor:"pointer",fontSize:12,fontWeight:500,
+                            transition:"all .12s",
+                            borderColor:sel?"var(--blue)":"var(--border)",
+                            background:sel?"#EEF5FF":"transparent",
+                            color:sel?"var(--blue)":"var(--text3)"}}>
+                          <Av name={f.name} size={18}/>
+                          {f.name}
+                          {sel&&<span style={{fontSize:10}}>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Progress card */}
             <div className="card" style={{padding:"16px 18px",marginBottom:14,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
@@ -1335,7 +1441,7 @@ function LandingPage({friends,onEnter}){
                       <>
                         {items.map(item=>(
                           <ItemRow key={item.id} item={item} tripId={activeTrip.id}
-                            myName={myName} friends={friends} fbReady={fbReady}/>
+                            myName={myName} friends={tripFriends} fbReady={fbReady}/>
                         ))}
                         <div style={{padding:"9px 12px",borderTop:"1px solid var(--border)",background:"var(--surf2)",display:"flex",gap:8}}>
                           <input className="inp" style={{flex:1,fontSize:13,padding:"7px 11px"}} placeholder="Add item to trip…"
