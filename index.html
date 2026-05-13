@@ -202,9 +202,11 @@ const fSet  = (p,v)  => F().set(F().ref(F().db,p),v);
 const fUpd  = (p,v)  => F().update(F().ref(F().db,p),v);
 const fDel  = p      => F().remove(F().ref(F().db,p));
 const fOn   = (p,cb) => {
-  const r=F().ref(F().db,p);
-  F().onValue(r,cb);
-  return ()=>F().off(r);
+  const r = F().ref(F().db,p);
+  // compat SDK passes snapshot to listener — unwrap it here
+  const handler = s => cb(s.exists() ? s.val() : null);
+  F().onValue(r, handler);
+  return () => F().off(r, "value", handler);
 };
 
 // ── Excel helpers ────────────────────────────────────────────────────────────
@@ -811,85 +813,89 @@ function App(){
     </div>
   );
 
-  if(!myName) return(
+// ── Landing page — proper component so hooks are legal ───────────────────────
+function LandingPage({friends,onEnter}){
+  const [n,setN]         = useState("");
+  const [focused,setFoc] = useState(false);
+  const confirm = name => { const v=(name||n).trim(); if(!v) return; onEnter(v); };
+  const filtered = friends.filter(f =>
+    n && f.name.toLowerCase().includes(n.toLowerCase()) &&
+    f.name.toLowerCase() !== n.toLowerCase()
+  );
+  return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:"var(--bg)"}}>
       <div className="card pop" style={{padding:"36px 30px",maxWidth:400,width:"100%",textAlign:"center"}}>
         <div style={{fontSize:52,marginBottom:12}}>⛺</div>
         <div style={{fontFamily:"var(--serif)",fontSize:26,marginBottom:6}}>Base Camp</div>
         <div style={{fontSize:14,color:"var(--text2)",marginBottom:24,lineHeight:1.7}}>Who's joining camp today?</div>
-        {(()=>{
-          const [n,sn]=useState("");
-          const [focused,setFocused]=useState(false);
-          const confirm=name=>{ const v=(name||n).trim(); if(!v)return; setMyName(v); lsSet("bc_name",v); };
-          const filtered=friends.filter(f=>n&&f.name.toLowerCase().includes(n.toLowerCase())&&f.name.toLowerCase()!==n.toLowerCase());
-          return(
-            <div style={{textAlign:"left"}}>
-              {/* Admin quick-tap at top */}
-              <div style={{marginBottom:18,textAlign:"center"}}>
-                <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>ADMIN</div>
-                <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                  {ADMIN_NAMES.map(name=>(
-                    <button key={name} onClick={()=>confirm(name)}
-                      style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px 8px 10px",
-                        borderRadius:24,border:"2px solid var(--blue)",background:"#EEF5FF",
-                        cursor:"pointer",fontSize:14,fontWeight:600,color:"var(--blue)"}}>
-                      <Av name={name} size={28}/>
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Friends chips */}
-              {friends.length>0&&(
-                <div style={{marginBottom:18}}>
-                  <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10,textAlign:"center"}}>YOUR CREW</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
-                    {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).map(f=>(
-                      <button key={f.id} onClick={()=>confirm(f.name)}
-                        style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px 6px 8px",
-                          borderRadius:20,border:"1.5px solid var(--border)",background:"var(--surf2)",
-                          cursor:"pointer",fontSize:13,fontWeight:500,color:"var(--text)",transition:"all .15s"}}
-                        onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--blue)";e.currentTarget.style.background="#EEF5FF";}}
-                        onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--surf2)";}}>
-                        <Av name={f.name} size={22}/>{f.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {/* Type new name with autocomplete */}
-              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:8,textAlign:"center"}}>
-                {friends.length>0?"— OR TYPE A NAME —":"ENTER YOUR NAME"}
-              </div>
-              <div style={{position:"relative"}}>
-                <input className="inp" style={{textAlign:"center",fontSize:15,marginBottom:8}}
-                  placeholder="Type name…" value={n} autoFocus={friends.length===0}
-                  onChange={e=>sn(e.target.value)}
-                  onFocus={()=>setFocused(true)}
-                  onBlur={()=>setTimeout(()=>setFocused(false),150)}
-                  onKeyDown={e=>e.key==="Enter"&&confirm()}/>
-                {focused&&filtered.length>0&&(
-                  <div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--surface)",
-                    border:"1px solid var(--border)",borderRadius:10,boxShadow:"var(--sh-lg)",zIndex:50,overflow:"hidden",marginTop:2}}>
-                    {filtered.map(f=>(
-                      <div key={f.id} onMouseDown={()=>confirm(f.name)}
-                        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",fontSize:14}}
-                        onMouseEnter={e=>e.currentTarget.style.background="var(--surf2)"}
-                        onMouseLeave={e=>e.currentTarget.style.background=""}>
-                        <Av name={f.name} size={24}/>{f.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button className="btn btn-blue" style={{width:"100%",padding:12,fontSize:15}}
-                onClick={()=>confirm()}>Enter Camp →</button>
+        <div style={{textAlign:"left"}}>
+          {/* Admin buttons */}
+          <div style={{marginBottom:18,textAlign:"center"}}>
+            <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>ADMIN</div>
+            <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+              {ADMIN_NAMES.map(name=>(
+                <button key={name} onClick={()=>confirm(name)}
+                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px 8px 10px",
+                    borderRadius:24,border:"2px solid var(--blue)",background:"#EEF5FF",
+                    cursor:"pointer",fontSize:14,fontWeight:600,color:"var(--blue)"}}>
+                  <Av name={name} size={28}/>{name}
+                </button>
+              ))}
             </div>
-          );
-        })()}
+          </div>
+          {/* Crew chips */}
+          {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).length>0&&(
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10,textAlign:"center"}}>YOUR CREW</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
+                {friends.filter(f=>!ADMIN_NAMES.includes(f.name)).map(f=>(
+                  <button key={f.id} onClick={()=>confirm(f.name)}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px 6px 8px",
+                      borderRadius:20,border:"1.5px solid var(--border)",background:"var(--surf2)",
+                      cursor:"pointer",fontSize:13,fontWeight:500,color:"var(--text)",transition:"all .15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--blue)";e.currentTarget.style.background="#EEF5FF";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--surf2)";}}>
+                    <Av name={f.name} size={22}/>{f.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Type / autocomplete */}
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:8,textAlign:"center"}}>
+            {friends.length>0?"— OR TYPE A NAME —":"ENTER YOUR NAME"}
+          </div>
+          <div style={{position:"relative"}}>
+            <input className="inp" style={{textAlign:"center",fontSize:15,marginBottom:8}}
+              placeholder="Type name…" value={n}
+              onChange={e=>setN(e.target.value)}
+              onFocus={()=>setFoc(true)}
+              onBlur={()=>setTimeout(()=>setFoc(false),150)}
+              onKeyDown={e=>e.key==="Enter"&&confirm()}/>
+            {focused&&filtered.length>0&&(
+              <div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--surface)",
+                border:"1px solid var(--border)",borderRadius:10,boxShadow:"var(--sh-lg)",
+                zIndex:50,overflow:"hidden",marginTop:2}}>
+                {filtered.map(f=>(
+                  <div key={f.id} onMouseDown={()=>confirm(f.name)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+                      cursor:"pointer",fontSize:14}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--surf2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <Av name={f.name} size={24}/>{f.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="btn btn-blue" style={{width:"100%",padding:12,fontSize:15}}
+            onClick={()=>confirm()}>Enter Camp →</button>
+        </div>
       </div>
     </div>
   );
+}
+  if(!myName) return <LandingPage friends={friends} onEnter={name=>{ setMyName(name); lsSet("bc_name",name); }}/>;
 
   const TripTabs=()=>activeTrip?(
     <div style={{display:"flex",gap:5}}>
