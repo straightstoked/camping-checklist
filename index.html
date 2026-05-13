@@ -24,13 +24,13 @@
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
   const firebaseConfig = {
-    apiKey:            "AIzaSyA-jN57LdDWnrjbQL-_s6pxKltd7yZOm7o",
-    authDomain:        "https://basecamp-app-1a745.firebaseapp.com",
-    databaseURL:       "https://basecamp-app-1a745-default-rtdb.firebaseio.com/",
-    projectId:         "basecamp-app-1a745",
-    storageBucket:     "basecamp-app-1a745.firebasestorage.app",
-    messagingSenderId: "13613174666",
-    appId:             "1:13613174666:web:1556b8feb9d28ac1e58273",
+    apiKey:            "PASTE_apiKey_HERE",
+    authDomain:        "PASTE_authDomain_HERE",
+    databaseURL:       "PASTE_databaseURL_HERE",
+    projectId:         "PASTE_projectId_HERE",
+    storageBucket:     "PASTE_storageBucket_HERE",
+    messagingSenderId: "PASTE_messagingSenderId_HERE",
+    appId:             "PASTE_appId_HERE",
   };
 
   const app = initializeApp(firebaseConfig);
@@ -1165,7 +1165,7 @@ function App(){
               <div ref={chatBtm}/>
             </div>
             <div style={{padding:"10px 14px 14px",background:"var(--surface)",borderTop:"1px solid var(--border)",
-              display:"flex",gap:8"}}>
+              display:"flex",gap:8}}>
               <input className="inp" style={{flex:1}} placeholder="Message…"
                 value={chatTxt} onChange={e=>setChatTxt(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&sendChat()}/>
