@@ -18,29 +18,34 @@
   2. Add web app → copy config
   3. Build → Realtime Database → Create (test mode)
 ════════════════════════════════════════════════ -->
-<!-- Firebase config (kept out of git) -->
+<!-- Firebase config (kept out of git via .gitignore) -->
 <script src="config.js"></script>
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, set, get, update, push, onValue, remove, off }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-
-  // Config is loaded from config.js (kept out of git via .gitignore)
-  const cfg = window.__basecampConfig;
-  if(!cfg){ document.getElementById("root").innerHTML =
-    '<div style="font-family:sans-serif;padding:40px;text-align:center;color:#636366">' +
-    '<div style="font-size:48px;margin-bottom:16px">⛺</div>' +
-    '<div style="font-size:18px;font-weight:600;margin-bottom:8px">Config missing</div>' +
-    '<div style="font-size:14px">Make sure <b>config.js</b> is in your repo.<br>See the setup guide for details.</div>' +
-    '</div>'; }
-  else {
-    const app = initializeApp(cfg);
-    const db  = getDatabase(app);
-    window.__fb = { db, ref, set, get, update, push, onValue, remove, off };
+<!-- Firebase (synchronous compat SDK — loads before React mounts) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+  (function(){
+    var cfg = window.__basecampConfig;
+    if(!cfg) return;
+    var app = firebase.initializeApp(cfg);
+    var db  = firebase.database();
+    // Wrap compat API to match the modular API shape the app expects
+    window.__fb = {
+      db:      db,
+      ref:     function(db,p){ return db.ref(p); },
+      set:     function(r,v){ return r.set(v); },
+      get:     function(r){ return r.get(); },
+      update:  function(r,v){ return r.update(v); },
+      push:    function(r,v){ return r.push(v); },
+      onValue: function(r,cb){ r.on("value",function(s){ cb(s.exists()?s.val():null); }); },
+      off:     function(r){ r.off(); },
+      remove:  function(r){ return r.remove(); },
+    };
     window.__fbReady = true;
+    // Event still dispatched for any listeners that registered early
     window.dispatchEvent(new Event("fb-ready"));
-  }
+  })();
 </script>
 
 <style>
@@ -196,7 +201,11 @@ const F     = () => window.__fb;
 const fSet  = (p,v)  => F().set(F().ref(F().db,p),v);
 const fUpd  = (p,v)  => F().update(F().ref(F().db,p),v);
 const fDel  = p      => F().remove(F().ref(F().db,p));
-const fOn   = (p,cb) => { const r=F().ref(F().db,p); F().onValue(r,s=>cb(s.exists()?s.val():null)); return ()=>F().off(r); };
+const fOn   = (p,cb) => {
+  const r=F().ref(F().db,p);
+  F().onValue(r,cb);
+  return ()=>F().off(r);
+};
 
 // ── Excel helpers ────────────────────────────────────────────────────────────
 function exportXLSX(inv) {
