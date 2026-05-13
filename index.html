@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="theme-color" content="#007AFF"/>
+<link rel="manifest" href="manifest.json"/>
 <title>Base Camp</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Serif+Display&display=swap" rel="stylesheet"/>
@@ -35,10 +37,76 @@
       return;
     }
     firebase.initializeApp(cfg);
+    // Enable offline persistence — Firebase caches data locally
+    // so listeners keep working without a connection
+    try { firebase.database().goOnline(); } catch(e){}
     // Confirm DB is reachable — wrappers call firebase.database() directly
     window.__fbReady = true;
     window.dispatchEvent(new Event("fb-ready"));
   })();
+</script>
+
+<!-- Offline write queue — queues Firebase writes when offline, syncs on reconnect -->
+<script>
+(function(){
+  var DB_NAME="basecamp_queue", DB_VER=1, STORE="writes";
+  var db=null;
+
+  function openDB(cb){
+    if(db){cb(db);return;}
+    var req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=function(e){e.target.result.createObjectStore(STORE,{keyPath:"id",autoIncrement:true});};
+    req.onsuccess=function(e){db=e.target.result;cb(db);};
+    req.onerror=function(){cb(null);};
+  }
+
+  function enqueue(op,path,val){
+    openDB(function(db){
+      if(!db)return;
+      var tx=db.transaction(STORE,"readwrite");
+      tx.objectStore(STORE).add({op:op,path:path,val:val||null,time:Date.now()});
+    });
+  }
+
+  function flush(){
+    openDB(function(db){
+      if(!db)return;
+      var tx=db.transaction(STORE,"readwrite");
+      var store=tx.objectStore(STORE);
+      store.getAll().onsuccess=function(e){
+        var items=e.target.result;
+        if(!items.length)return;
+        items.forEach(function(item){
+          try{
+            var ref=firebase.database().ref(item.path);
+            if(item.op==="set")  ref.set(item.val);
+            if(item.op==="upd")  ref.update(item.val);
+            if(item.op==="del")  ref.remove();
+            // Remove from queue after firing
+            openDB(function(db2){
+              if(!db2)return;
+              db2.transaction(STORE,"readwrite").objectStore(STORE).delete(item.id);
+            });
+          }catch(err){}
+        });
+      };
+    });
+  }
+
+  window.__offlineQueue={enqueue:enqueue,flush:flush};
+
+  // Flush queue when coming back online
+  window.addEventListener("online",function(){
+    setTimeout(flush,1000); // small delay to let connection stabilise
+  });
+
+  // Register Service Worker for offline app shell caching
+  if("serviceWorker" in navigator){
+    window.addEventListener("load",function(){
+      navigator.serviceWorker.register("sw.js").catch(function(){});
+    });
+  }
+})();
 </script>
 
 <style>
@@ -190,16 +258,28 @@ const DEF_INV = [
 ];
 
 // ── Firebase wrappers ────────────────────────────────────────────────────────
-// Uses Firebase compat SDK directly — no shim layer
+// Uses Firebase compat SDK directly. When offline, writes go to IndexedDB queue
+// and flush automatically when connection returns.
 const dbRef  = p       => firebase.database().ref(p);
-const fSet   = (p,v)   => dbRef(p).set(v);
-const fUpd   = (p,v)   => dbRef(p).update(v);
-const fDel   = p       => dbRef(p).remove();
+const isOnline = ()    => navigator.onLine;
+
+const fSet   = (p,v)   => {
+  if(!isOnline()){ window.__offlineQueue.enqueue("set",p,v); return Promise.resolve(); }
+  return dbRef(p).set(v);
+};
+const fUpd   = (p,v)   => {
+  if(!isOnline()){ window.__offlineQueue.enqueue("upd",p,v); return Promise.resolve(); }
+  return dbRef(p).update(v);
+};
+const fDel   = p       => {
+  if(!isOnline()){ window.__offlineQueue.enqueue("del",p,null); return Promise.resolve(); }
+  return dbRef(p).remove();
+};
 const fOn    = (p,cb)  => {
   const r = dbRef(p);
   const fn = snap => cb(snap.exists() ? snap.val() : null);
   r.on("value", fn);
-  return () => r.off("value", fn); // only removes this specific listener
+  return () => r.off("value", fn);
 };
 
 // ── Excel helpers ────────────────────────────────────────────────────────────
@@ -572,6 +652,7 @@ function App(){
   const [activeId, setActiveId] = useState(null);
   const [view,     setView]     = useState("home");
   const [toast,    setToast]    = useState(null);
+  const [online,   setOnline]   = useState(()=>navigator.onLine);
   const [sideOpen, setSideOpen] = useState(false);
   const [conflicts,setConflicts]= useState(null);
   const [pending,  setPending]  = useState(null);
@@ -586,11 +667,22 @@ function App(){
   const [showNT,   setShowNT]   = useState(false);
   const [showTmpl, setShowTmpl] = useState(false);
   const [tripMembers, setTripMembers] = useState([]); // friend ids selected for new trip
+  const [tripGear,    setTripGear]    = useState({}); // {itemId: true} selected gear items
+  const [tripCatOpen, setTripCatOpen] = useState({}); // {catId: bool} expanded cats in create panel
   const fileRef  = useRef();
   const chatBtm  = useRef();
 
   const notify = m => { setToast(m); setTimeout(()=>setToast(null),2500); };
   const goTrip = (id,v="trip") => navigate(v,id);
+
+  // Track online/offline status
+  useEffect(()=>{
+    const goOn  = ()=>{ setOnline(true);  notify("Back online — syncing changes…"); };
+    const goOff = ()=>{ setOnline(false); };
+    window.addEventListener("online",  goOn);
+    window.addEventListener("offline", goOff);
+    return ()=>{ window.removeEventListener("online",goOn); window.removeEventListener("offline",goOff); };
+  },[]);
 
   // Firebase ready — check flag first, then poll every 50ms so it's near-instant
   useEffect(()=>{
@@ -760,14 +852,25 @@ function App(){
     if(!name||!fbReady)return;
     const color=COLORS[trips.length%COLORS.length];
     const items={};
-    (tmpl?tmpl.cats:inv).forEach(cat=>{
-      cat.items.forEach(item=>{ const id=gid(); items[id]={id,catId:cat.id,catName:cat.name,catIcon:cat.icon,name:item.name,qty:item.qty||1,weight:item.weight||"",packed:false,needsBuy:false,someoneElse:false,assignedTo:myName,notes:{}}; });
+    const srcCats = tmpl ? tmpl.cats : inv;
+    const hasGearSelection = !tmpl && Object.keys(tripGear).length>0;
+    srcCats.forEach(cat=>{
+      cat.items.forEach(item=>{
+        // If user made a selection, only include checked items; otherwise include all
+        if(hasGearSelection && !tripGear[item.id]) return;
+        const id=gid();
+        items[id]={id,catId:cat.id,catName:cat.name,catIcon:cat.icon,
+          name:item.name,qty:item.qty||1,weight:item.weight||"",
+          packed:false,needsBuy:false,someoneElse:false,assignedTo:myName,notes:{}};
+      });
     });
     const t={id:gid(),name,color,createdAt:ts(),
       members: tripMembers.length>0 ? tripMembers : friends.map(f=>f.id),
       items};
     await fSet(`trips/${t.id}`,t);
-    navigate("trip",t.id); setNewTrip(""); setTripMembers([]); setShowNT(false); setShowTmpl(false);
+    navigate("trip",t.id);
+    setNewTrip(""); setTripMembers([]); setTripGear({}); setTripCatOpen({});
+    setShowNT(false); setShowTmpl(false);
     notify(`"${name}" created!`);
   };
   const deleteTrip = async id=>{ await fDel(`trips/${id}`); if(activeId===id) navigate("trips"); notify("Trip deleted"); };
@@ -979,6 +1082,12 @@ function LandingPage({friends,onEnter}){
             {activeTrip?activeTrip.name:view==="home"?"Base Camp":view==="inventory"?"My Gear":view==="friends"?"Friends":"Trips"}
           </span>
           <TripTabs/>
+          {!online&&(
+            <span style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:12,
+              background:"#FEF3C7",color:"#92400E",flexShrink:0,whiteSpace:"nowrap"}}>
+              ✈️ Offline
+            </span>
+          )}
         </div>
 
         {/* ════ HOME ════ */}
@@ -1143,15 +1252,107 @@ function LandingPage({friends,onEnter}){
 
             {showNT&&(
               <div className="card fi" style={{marginBottom:14,padding:16}}>
-                <div style={{fontSize:13,color:"var(--text2)",marginBottom:12,fontWeight:500}}>Name your adventure</div>
-                <div style={{display:"flex",gap:8,marginBottom: friends.length>0?14:0}}>
-                  <input className="inp" placeholder="e.g. Yosemite June 2026" autoFocus value={newTrip}
-                    onChange={e=>setNewTrip(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createTrip()}/>
+                {/* Trip name */}
+                <div style={{fontSize:13,color:"var(--text2)",marginBottom:10,fontWeight:500}}>Name your adventure</div>
+                <input className="inp" placeholder="e.g. Yosemite June 2026" autoFocus value={newTrip}
+                  onChange={e=>setNewTrip(e.target.value)} onKeyDown={e=>e.key==="Enter"&&newTrip.trim()&&setNewTrip(newTrip)}
+                  style={{marginBottom:16}}/>
+
+                {/* ── GEAR SECTION ── */}
+                <div style={{marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <span style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",flex:1}}>
+                      WHAT GEAR? <span style={{fontWeight:400,letterSpacing:0,color:"var(--text3)"}}>
+                        ({Object.keys(tripGear).length>0?`${Object.keys(tripGear).length} items selected`:"all gear — tap to narrow down"})
+                      </span>
+                    </span>
+                    {Object.keys(tripGear).length>0&&(
+                      <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",cursor:"pointer",fontWeight:500}}
+                        onClick={()=>setTripGear({})}>Clear all</button>
+                    )}
+                  </div>
+
+                  {inv.map(cat=>{
+                    const catOpen = tripCatOpen[cat.id]===true;
+                    const selCount = cat.items.filter(i=>tripGear[i.id]).length;
+                    const allSel   = cat.items.length>0 && selCount===cat.items.length;
+                    const noneSel  = selCount===0;
+
+                    const toggleCat = ()=>{
+                      // select all / deselect all for this category
+                      if(allSel){
+                        setTripGear(p=>{ const n={...p}; cat.items.forEach(i=>delete n[i.id]); return n; });
+                      } else {
+                        setTripGear(p=>{ const n={...p}; cat.items.forEach(i=>n[i.id]=true); return n; });
+                      }
+                    };
+                    const toggleItem = (itemId)=>{
+                      setTripGear(p=>{ const n={...p}; if(n[itemId]) delete n[itemId]; else n[itemId]=true; return n; });
+                    };
+
+                    return(
+                      <div key={cat.id} style={{marginBottom:6,border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
+                        {/* Category header row */}
+                        <div style={{display:"flex",alignItems:"center",background:"var(--surf2)",padding:"9px 12px",gap:8}}>
+                          {/* Expand/collapse arrow */}
+                          <button onClick={()=>setTripCatOpen(p=>({...p,[cat.id]:!catOpen}))}
+                            style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"var(--text3)",
+                              padding:0,width:18,flexShrink:0,textAlign:"center"}}>
+                            {catOpen?"▼":"▶"}
+                          </button>
+                          {/* Category name + count */}
+                          <span style={{fontSize:13,fontWeight:600,color:"var(--text)",flex:1,cursor:"pointer"}}
+                            onClick={()=>setTripCatOpen(p=>({...p,[cat.id]:!catOpen}))}>
+                            {cat.icon} {cat.name}
+                          </span>
+                          {/* Item count badge */}
+                          <span style={{fontSize:11,color:selCount>0?"var(--blue)":"var(--text3)",fontWeight:selCount>0?600:400}}>
+                            {Object.keys(tripGear).length===0?"all":selCount===0?"none":`${selCount}/${cat.items.length}`}
+                          </span>
+                          {/* Select/deselect all for this category */}
+                          <button onClick={toggleCat}
+                            style={{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,border:"1.5px solid",
+                              cursor:"pointer",flexShrink:0,
+                              borderColor:allSel?"var(--danger)":"var(--blue)",
+                              color:allSel?"var(--danger)":"var(--blue)",
+                              background:"transparent"}}>
+                            {allSel?"✕ None":"✓ All"}
+                          </button>
+                        </div>
+
+                        {/* Items — shown when expanded */}
+                        {catOpen&&(
+                          <div style={{background:"var(--surface)"}}>
+                            {cat.items.map(item=>{
+                              const sel = tripGear[item.id]===true;
+                              return(
+                                <label key={item.id}
+                                  style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",
+                                    borderTop:"1px solid var(--border)",cursor:"pointer",
+                                    background:sel?"#F0F6FF":"transparent",transition:"background .1s"}}>
+                                  <input type="checkbox" checked={sel}
+                                    onChange={()=>toggleItem(item.id)}
+                                    style={{width:15,height:15,accentColor:"var(--blue)",flexShrink:0}}/>
+                                  <span style={{fontSize:13,color:sel?"var(--text)":"var(--text2)",flex:1,fontWeight:sel?500:400}}>
+                                    {item.name}
+                                  </span>
+                                  {item.qty>1&&<span style={{fontSize:11,color:"var(--text3)"}}>×{item.qty}</span>}
+                                  {item.weight&&<span style={{fontSize:11,color:"var(--text3)"}}>{item.weight}</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+
+                {/* ── MEMBERS SECTION ── */}
                 {friends.length>0&&(
-                  <div style={{marginBottom:14}}>
+                  <div style={{marginBottom:16}}>
                     <div style={{fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)",marginBottom:10}}>
-                      WHO'S COMING? <span style={{fontWeight:400,color:"var(--text3)",letterSpacing:0}}>(select all that apply)</span>
+                      WHO'S COMING? <span style={{fontWeight:400,letterSpacing:0}}>(select all that apply)</span>
                     </div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
                       {friends.map(f=>{
@@ -1173,16 +1374,25 @@ function LandingPage({friends,onEnter}){
                     </div>
                     {tripMembers.length===0&&(
                       <div style={{fontSize:11,color:"var(--text3)",marginTop:7}}>
-                        No one selected — all friends will be available in the assign dropdown.
+                        No one selected — all friends will be in the assign dropdown.
                       </div>
                     )}
                   </div>
                 )}
-                <div style={{display:"flex",gap:8}}>
-                  <button className="btn btn-green btn-sm" onClick={()=>createTrip()}>
-                    Create {tripMembers.length>0?`with ${tripMembers.length} member${tripMembers.length>1?"s":""}` : "trip"}
+
+                {/* ── CREATE / CANCEL ── */}
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <button className="btn btn-green" onClick={()=>createTrip()}
+                    style={{fontSize:13,padding:"8px 18px"}}
+                    disabled={!newTrip.trim()}>
+                    ⛺ Create trip
+                    {Object.keys(tripGear).length>0&&` · ${Object.keys(tripGear).length} items`}
+                    {tripMembers.length>0&&` · ${tripMembers.length} ${tripMembers.length===1?"person":"people"}`}
                   </button>
-                  <button className="btn btn-ghost btn-sm" onClick={()=>{setShowNT(false);setTripMembers([]);}}>Cancel</button>
+                  <button className="btn btn-ghost btn-sm"
+                    onClick={()=>{ setShowNT(false); setTripMembers([]); setTripGear({}); setTripCatOpen({}); }}>
+                    Cancel
+                  </button>
                 </div>
               </div>
             )}
@@ -1301,47 +1511,85 @@ function LandingPage({friends,onEnter}){
               <button className="btn btn-ghost btn-sm" onClick={()=>navigate("trips")}>← Trips</button>
             </div>
 
-            {/* Members editor */}
-            {(()=>{
-              const mids = activeTrip.members||[];
-              const allSelected = friends.length>0 && friends.every(f=>mids.includes(f.id));
-              return friends.length>0&&(
-                <div className="card" style={{padding:"12px 14px",marginBottom:14}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                    <span style={{fontSize:12,fontWeight:600,color:"var(--text2)",flex:1}}>
-                      👥 Who's on this trip ({tripFriends.length} of {friends.length})
+            {/* Members — compact display with collapsible editor */}
+            {friends.length>0&&(()=>{
+              const mids        = activeTrip.members||[];
+              const onTrip      = friends.filter(f=>mids.includes(f.id));
+              const notOnTrip   = friends.filter(f=>!mids.includes(f.id));
+              const allSelected = friends.every(f=>mids.includes(f.id));
+              const [editOpen, setEditOpen] = React.useState(false);
+              return(
+                <div className="card" style={{marginBottom:14,overflow:"hidden"}}>
+                  {/* Always-visible: current members as avatar row */}
+                  <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,fontWeight:600,color:"var(--text2)",flexShrink:0}}>
+                      👥 On this trip:
                     </span>
-                    <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",cursor:"pointer",fontWeight:500}}
-                      onClick={()=>{
-                        const all=friends.map(f=>f.id);
-                        fUpd(`trips/${activeTrip.id}`,{members:allSelected?[]:all});
-                        notify(allSelected?"Cleared all members":"All friends added");
-                      }}>
-                      {allSelected?"Clear all":"Add all"}
+                    {onTrip.length===0?(
+                      <span style={{fontSize:12,color:"var(--text3)"}}>No one assigned yet</span>
+                    ):(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:5,flex:1}}>
+                        {onTrip.map(f=>(
+                          <span key={f.id} style={{display:"flex",alignItems:"center",gap:4,
+                            background:"#EEF5FF",borderRadius:20,padding:"3px 10px 3px 5px",
+                            fontSize:12,fontWeight:500,color:"var(--blue)"}}>
+                            <Av name={f.name} size={18}/>{f.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={()=>setEditOpen(p=>!p)}
+                      style={{fontSize:11,color:"var(--blue)",background:"none",border:"1px solid var(--blue)",
+                        borderRadius:6,cursor:"pointer",padding:"3px 9px",fontWeight:500,flexShrink:0,
+                        marginLeft:"auto"}}>
+                      {editOpen?"Done":"Edit"}
                     </button>
                   </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {friends.map(f=>{
-                      const sel=mids.includes(f.id);
-                      return(
-                        <button key={f.id}
+
+                  {/* Collapsible editor */}
+                  {editOpen&&(
+                    <div style={{borderTop:"1px solid var(--border)",padding:"12px 14px",background:"var(--surf2)"}}
+                      className="fi">
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                        <span style={{fontSize:11,fontWeight:600,letterSpacing:.6,color:"var(--text3)",flex:1}}>
+                          MANAGE MEMBERS
+                        </span>
+                        <button style={{fontSize:11,color:"var(--blue)",background:"none",border:"none",
+                          cursor:"pointer",fontWeight:500}}
                           onClick={()=>{
-                            const next=sel?mids.filter(x=>x!==f.id):[...mids,f.id];
-                            fUpd(`trips/${activeTrip.id}`,{members:next});
-                          }}
-                          style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 6px",
-                            borderRadius:20,border:"1.5px solid",cursor:"pointer",fontSize:12,fontWeight:500,
-                            transition:"all .12s",
-                            borderColor:sel?"var(--blue)":"var(--border)",
-                            background:sel?"#EEF5FF":"transparent",
-                            color:sel?"var(--blue)":"var(--text3)"}}>
-                          <Av name={f.name} size={18}/>
-                          {f.name}
-                          {sel&&<span style={{fontSize:10}}>✓</span>}
+                            const all=friends.map(f=>f.id);
+                            fUpd(`trips/${activeTrip.id}`,{members:allSelected?[]:all});
+                            notify(allSelected?"Cleared all":"All friends added");
+                          }}>
+                          {allSelected?"Remove all":"Add all"}
                         </button>
-                      );
-                    })}
-                  </div>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                        {friends.map(f=>{
+                          const sel=mids.includes(f.id);
+                          return(
+                            <div key={f.id} style={{display:"flex",alignItems:"center",gap:9,
+                              padding:"7px 10px",borderRadius:9,background:"var(--surface)",
+                              border:"1px solid var(--border)"}}>
+                              <Av name={f.name} size={26}/>
+                              <span style={{flex:1,fontSize:13,fontWeight:500,color:"var(--text)"}}>{f.name}</span>
+                              <button onClick={()=>{
+                                  const next=sel?mids.filter(x=>x!==f.id):[...mids,f.id];
+                                  fUpd(`trips/${activeTrip.id}`,{members:next});
+                                }}
+                                style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:7,
+                                  border:"1.5px solid",cursor:"pointer",transition:"all .12s",
+                                  borderColor:sel?"var(--danger)":"var(--blue)",
+                                  color:sel?"var(--danger)":"var(--blue)",
+                                  background:sel?"#FFF0F0":"#EEF5FF"}}>
+                                {sel?"Remove":"Add"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
