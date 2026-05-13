@@ -443,37 +443,39 @@ function ItemRow({item,tripId,myName,friends,fbReady}){
             <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>✓ Packed by {item.packedBy}</div>
           )}
           {!item.packed&&(
-            <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:8,alignItems:"center"}}>
-              {/* Needs buying checkbox */}
-              <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:12,color:"var(--text2)"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:8}}>
+              {/* Who's bringing */}
+              <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:"var(--text2)",fontWeight:500,whiteSpace:"nowrap"}}>Who's bringing:</span>
+                <select style={{fontSize:12,background:"var(--surf2)",border:"1px solid var(--border)",
+                  borderRadius:7,padding:"3px 8px",
+                  color:"var(--text)",cursor:"pointer",maxWidth:180}}
+                  value={assignedName||""}
+                  onChange={e=>{
+                    const val=e.target.value;
+                    u({assignedTo:val||null,someoneElse:!!val&&val!==myName});
+                  }}>
+                  <option value="">— unassigned —</option>
+                  {whoList.map(p=>(
+                    <option key={p.id} value={p.name}>
+                      {p.name===myName?`${p.name} (me)`:p.name}
+                    </option>
+                  ))}
+                </select>
+                {assignedName&&(
+                  <button style={{fontSize:11,color:"var(--text3)",background:"none",border:"none",
+                    cursor:"pointer",padding:0,lineHeight:1}}
+                    onClick={()=>u({assignedTo:null,someoneElse:false})}>
+                    ✕
+                  </button>
+                )}
+              </div>
+              {/* Needs buying */}
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
                 <input type="checkbox" checked={!!item.needsBuy} style={{width:14,height:14,accentColor:"var(--warn)"}}
                   onChange={e=>u({needsBuy:e.target.checked})}/>
-                Needs buying
+                <span style={{fontSize:12,color:"var(--text2)"}}>🛒 Needs buying</span>
               </label>
-              {/* Single "Who's bringing?" dropdown — replaces someoneElse + assign */}
-              <select style={{fontSize:12,background:"var(--surf2)",border:"1px solid var(--border)",
-                borderRadius:7,padding:"3px 8px",
-                color:assignedName?"var(--text)":"var(--text2)",
-                cursor:"pointer",maxWidth:180}}
-                value={assignedName||""}
-                onChange={e=>{
-                  const val=e.target.value;
-                  u({assignedTo:val||null,someoneElse:!!val&&val!==myName});
-                }}>
-                <option value="">Who's bringing?</option>
-                {whoList.map(p=>(
-                  <option key={p.id} value={p.name}>
-                    {p.name===myName?`${p.name} (me)`:p.name}
-                  </option>
-                ))}
-              </select>
-              {assignedName&&(
-                <button style={{fontSize:11,color:"var(--text3)",background:"none",border:"none",
-                  cursor:"pointer",padding:0,lineHeight:1}}
-                  onClick={()=>u({assignedTo:null,someoneElse:false})}>
-                  ✕ clear
-                </button>
-              )}
             </div>
           )}
           <NoteThread tripId={tripId} itemId={item.id} notes={item.notes}
@@ -759,7 +761,7 @@ function App(){
     const color=COLORS[trips.length%COLORS.length];
     const items={};
     (tmpl?tmpl.cats:inv).forEach(cat=>{
-      cat.items.forEach(item=>{ const id=gid(); items[id]={id,catId:cat.id,catName:cat.name,catIcon:cat.icon,name:item.name,qty:item.qty||1,weight:item.weight||"",packed:false,needsBuy:false,someoneElse:false,assignedTo:null,notes:{}}; });
+      cat.items.forEach(item=>{ const id=gid(); items[id]={id,catId:cat.id,catName:cat.name,catIcon:cat.icon,name:item.name,qty:item.qty||1,weight:item.weight||"",packed:false,needsBuy:false,someoneElse:false,assignedTo:myName,notes:{}}; });
     });
     const t={id:gid(),name,color,createdAt:ts(),
       members: tripMembers.length>0 ? tripMembers : friends.map(f=>f.id),
@@ -782,7 +784,7 @@ function App(){
   const addTripItem=(catId,catName,catIcon)=>{
     const k=`t-${catId}`, n=(nim[k]||"").trim(); if(!n||!fbReady)return;
     const id=gid();
-    fUpd(`trips/${activeId}/items`,{[id]:{id,catId,catName,catIcon:catIcon||"📦",name:n,qty:1,weight:"",packed:false,needsBuy:false,someoneElse:false,assignedTo:null,notes:{}}});
+    fUpd(`trips/${activeId}/items`,{[id]:{id,catId,catName,catIcon:catIcon||"📦",name:n,qty:1,weight:"",packed:false,needsBuy:false,someoneElse:false,assignedTo:myName,notes:{}}});
     setNim(p=>({...p,[k]:""})); notify("Item added to trip");
   };
 
