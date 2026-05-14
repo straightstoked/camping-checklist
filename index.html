@@ -458,10 +458,13 @@ function WhoHasWhat({items}){
   const people=useMemo(()=>{
     const m={};
     (items||[]).forEach(i=>{
-      const p=i.assignedTo||(i.someoneElse?"Someone else":null);
-      if(!p)return;
-      if(!m[p])m[p]={name:p,done:[],todo:[]};
-      (i.packed?m[p].done:m[p].todo).push(i);
+      // assignedTo can be array (new) or string (legacy)
+      const names=Array.isArray(i.assignedTo)?i.assignedTo:i.assignedTo?[i.assignedTo]:[];
+      if(names.length===0&&i.someoneElse) names.push("Someone else");
+      names.forEach(p=>{
+        if(!m[p])m[p]={name:p,done:[],todo:[]};
+        (i.packed?m[p].done:m[p].todo).push(i);
+      });
     });
     return Object.values(m);
   },[items]);
@@ -550,32 +553,69 @@ function NoteThread({tripId,itemId,notes,myName,fbReady}){
 // ── Trip item row ─────────────────────────────────────────────────────────────
 function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
   const u=patch=>fbReady&&fUpd(`trips/${tripId}/items/${item.id}`,patch);
-  const whoList = [
-    {id:"__me",name:myName},
-    ...friends.filter(f=>f.name!==myName),
-  ];
-  const assignedName = item.assignedTo || null;
-  // Item is "manually added" if it has no inventoryId (added directly on the trip)
+
+  // assignedTo is now an array of names; support legacy string format too
+  const assigned = useMemo(()=>{
+    if(!item.assignedTo) return [];
+    if(Array.isArray(item.assignedTo)) return item.assignedTo;
+    return [item.assignedTo]; // legacy string → wrap in array
+  },[item.assignedTo]);
+
+  const whoList = [{id:"__me",name:myName},...friends.filter(f=>f.name!==myName)];
   const isManual = !item.inventoryId;
+
+  const togglePerson = (name)=>{
+    const next = assigned.includes(name)
+      ? assigned.filter(n=>n!==name)
+      : [...assigned, name];
+    u({assignedTo:next, someoneElse:next.length>0&&!next.includes(myName)});
+  };
+
+  const qty = item.qty||1;
+
   return(
     <div className={item.packed?"packed-row":""} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",transition:"background .18s"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:11}}>
         <input type="checkbox" checked={!!item.packed} style={{width:18,height:18,marginTop:2}}
-          onChange={e=>u({packed:e.target.checked,packedBy:e.target.checked?(item.assignedTo||myName):null,packedAt:e.target.checked?ts():null})}/>
+          onChange={e=>u({packed:e.target.checked,
+            packedBy:e.target.checked?(assigned.length>0?assigned.join(" & "):myName):null,
+            packedAt:e.target.checked?ts():null})}/>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            <span className={item.packed?"packed-name":""} style={{fontSize:14,fontWeight:500,color:"var(--text)"}}>{item.name}</span>
-            {item.qty>1&&<span style={{fontSize:12,color:"var(--text3)"}}>×{item.qty}</span>}
+
+          {/* ── Name + qty row ── */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+            <span className={item.packed?"packed-name":""}
+              style={{fontSize:15,fontWeight:600,color:"var(--text)"}}>{item.name}</span>
+
+            {/* Quantity stepper — bigger & bolder */}
+            {!item.packed?(
+              <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--surf2)",
+                borderRadius:8,border:"1px solid var(--border)",padding:"2px 6px",flexShrink:0}}>
+                <button onClick={()=>u({qty:Math.max(1,qty-1)})}
+                  style={{width:20,height:20,borderRadius:5,border:"none",background:"transparent",
+                    fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",
+                    justifyContent:"center",color:"var(--text2)",fontWeight:700,lineHeight:1}}>−</button>
+                <span style={{fontSize:15,fontWeight:700,color:"var(--text)",
+                  minWidth:22,textAlign:"center",letterSpacing:-.3}}>
+                  {qty}
+                </span>
+                <button onClick={()=>u({qty:qty+1})}
+                  style={{width:20,height:20,borderRadius:5,border:"none",background:"transparent",
+                    fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",
+                    justifyContent:"center",color:"var(--text2)",fontWeight:700,lineHeight:1}}>+</button>
+              </div>
+            ):(
+              qty>1&&<span style={{fontSize:13,fontWeight:600,color:"var(--text3)"}}>×{qty}</span>
+            )}
+
             {item.weight&&<span className="pill p-gray" style={{fontSize:11}}>{item.weight}</span>}
             {!item.packed&&item.needsBuy&&<span className="pill p-orange">🛒 Needs buying</span>}
-            {!item.packed&&assignedName&&assignedName!==myName&&<span className="pill p-blue">👤 {assignedName}</span>}
-            {!item.packed&&assignedName===myName&&<span className="pill p-green">👤 Me</span>}
-            {/* Lowkey save-to-inventory button for manually added items */}
+
+            {/* Save to gear — lowkey */}
             {isManual&&onSaveToInv&&(
               <button onClick={()=>onSaveToInv(item)}
                 style={{fontSize:10,color:"var(--text3)",background:"none",border:"1px solid var(--border)",
-                  borderRadius:5,padding:"1px 6px",cursor:"pointer",fontWeight:500,lineHeight:1.6,
-                  transition:"all .12s"}}
+                  borderRadius:5,padding:"1px 6px",cursor:"pointer",fontWeight:500,lineHeight:1.6,transition:"all .12s"}}
                 title="Save this item to My Gear inventory"
                 onMouseEnter={e=>{e.currentTarget.style.color="var(--blue)";e.currentTarget.style.borderColor="var(--blue)";}}
                 onMouseLeave={e=>{e.currentTarget.style.color="var(--text3)";e.currentTarget.style.borderColor="var(--border)";}}>
@@ -583,36 +623,58 @@ function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
               </button>
             )}
           </div>
-          {item.packed&&item.packedBy&&(
-            <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>✓ Packed by {item.packedBy}</div>
+
+          {/* ── Assigned chips (always visible when assigned) ── */}
+          {assigned.length>0&&(
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
+              {assigned.map(name=>(
+                <span key={name} style={{display:"flex",alignItems:"center",gap:4,
+                  background:name===myName?"#D1FAE5":"#EEF5FF",
+                  borderRadius:20,padding:"3px 10px 3px 5px",
+                  fontSize:12,fontWeight:500,
+                  color:name===myName?"#065F46":"var(--blue)"}}>
+                  <Av name={name} size={16}/>
+                  {name===myName?"Me":name}
+                  {!item.packed&&(
+                    <button onClick={()=>togglePerson(name)}
+                      style={{background:"none",border:"none",cursor:"pointer",
+                        fontSize:13,lineHeight:1,color:"inherit",opacity:.6,
+                        padding:"0 0 0 2px",marginLeft:2}}>×</button>
+                  )}
+                </span>
+              ))}
+            </div>
           )}
+
+          {/* ── Packed by ── */}
+          {item.packed&&item.packedBy&&(
+            <div style={{fontSize:11,color:"var(--text3)",marginBottom:4}}>✓ Packed by {item.packedBy}</div>
+          )}
+
+          {/* ── Controls when unpacked ── */}
           {!item.packed&&(
-            <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:8}}>
-              {/* Who's bringing */}
-              <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-                <span style={{fontSize:12,color:"var(--text2)",fontWeight:500,whiteSpace:"nowrap"}}>Who's bringing:</span>
-                <select style={{fontSize:12,background:"var(--surf2)",border:"1px solid var(--border)",
-                  borderRadius:7,padding:"3px 8px",
-                  color:"var(--text)",cursor:"pointer",maxWidth:180}}
-                  value={assignedName||""}
-                  onChange={e=>{
-                    const val=e.target.value;
-                    u({assignedTo:val||null,someoneElse:!!val&&val!==myName});
-                  }}>
-                  <option value="">— unassigned —</option>
-                  {whoList.map(p=>(
-                    <option key={p.id} value={p.name}>
-                      {p.name===myName?`${p.name} (me)`:p.name}
-                    </option>
-                  ))}
-                </select>
-                {assignedName&&(
-                  <button style={{fontSize:11,color:"var(--text3)",background:"none",border:"none",
-                    cursor:"pointer",padding:0,lineHeight:1}}
-                    onClick={()=>u({assignedTo:null,someoneElse:false})}>
-                    ✕
-                  </button>
-                )}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {/* Who's bringing — chip picker */}
+              <div>
+                <div style={{fontSize:11,color:"var(--text2)",fontWeight:500,marginBottom:5}}>Who's bringing:</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                  {whoList.map(p=>{
+                    const sel=assigned.includes(p.name);
+                    return(
+                      <button key={p.id} onClick={()=>togglePerson(p.name)}
+                        style={{display:"flex",alignItems:"center",gap:5,
+                          padding:"4px 10px 4px 6px",borderRadius:20,
+                          border:`1.5px solid ${sel?(p.name===myName?"#34C759":"var(--blue)"):"var(--border)"}`,
+                          background:sel?(p.name===myName?"#D1FAE5":"#EEF5FF"):"transparent",
+                          color:sel?(p.name===myName?"#065F46":"var(--blue)"):"var(--text3)",
+                          cursor:"pointer",fontSize:12,fontWeight:500,transition:"all .12s"}}>
+                        <Av name={p.name} size={16}/>
+                        {p.name===myName?"Me":p.name}
+                        {sel&&<span style={{fontSize:10,marginLeft:1}}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               {/* Needs buying */}
               <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
@@ -622,6 +684,7 @@ function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
               </label>
             </div>
           )}
+
           <NoteThread tripId={tripId} itemId={item.id} notes={item.notes}
             myName={myName} fbReady={fbReady}/>
         </div>
@@ -932,7 +995,6 @@ function App(){
   const chatBtm  = useRef();
 
   const notify = m => { setToast(m); setTimeout(()=>setToast(null),2500); };
-  const goTrip = (id,v="trip") => navigate(v,id);
 
   // Track online/offline status
   useEffect(()=>{
@@ -991,6 +1053,7 @@ function App(){
     } catch(e) {}
     setView(newView); setActiveId(newActiveId); setSideOpen(false);
   };
+  const goTrip = (id,v="trip") => navigate(v,id);
 
   // Live trips
   useEffect(()=>{
@@ -1034,14 +1097,15 @@ function App(){
   const stats = useMemo(()=>{
     const tot=tripItems.length, packed=tripItems.filter(i=>i.packed).length,
           buy=tripItems.filter(i=>i.needsBuy&&!i.packed).length,
-          asgn=tripItems.filter(i=>(i.assignedTo||i.someoneElse)&&!i.packed).length,
+          asgn=tripItems.filter(i=>{const a=Array.isArray(i.assignedTo)?i.assignedTo:i.assignedTo?[i.assignedTo]:[];return (a.length>0||i.someoneElse)&&!i.packed;}).length,
           pct=tot?~~(packed/tot*100):0;
     return {tot,packed,buy,asgn,pct};
   },[tripItems]);
 
   const filtItems = useMemo(()=>tripItems.filter(i=>{
     if(filters.person!=="all"){
-      if(i.assignedTo!==filters.person&&!(i.someoneElse&&!i.assignedTo&&filters.person==="Someone else")) return false;
+      const assigned=Array.isArray(i.assignedTo)?i.assignedTo:i.assignedTo?[i.assignedTo]:[];
+      if(!assigned.includes(filters.person)) return false;
     }
     if(filters.status==="outstanding") return !i.packed;
     if(filters.status==="needsBuy") return i.needsBuy&&!i.packed;
@@ -2074,8 +2138,10 @@ function App(){
 
             {/* Filter bar */}
             {(()=>{
-              const people=[...new Set(tripItems.filter(i=>i.assignedTo).map(i=>i.assignedTo))];
-              const hasSE=tripItems.some(i=>i.someoneElse&&!i.assignedTo);
+              const people=[...new Set(tripItems.flatMap(i=>
+                Array.isArray(i.assignedTo)?i.assignedTo:i.assignedTo?[i.assignedTo]:[]
+              ))];
+              const hasSE=tripItems.some(i=>i.someoneElse&&!(Array.isArray(i.assignedTo)?i.assignedTo.length:i.assignedTo));
               const isFiltered=filters.person!=="all"||filters.status!=="all";
               return(
                 <div style={{marginBottom:14}}>
