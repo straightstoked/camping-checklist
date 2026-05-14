@@ -109,6 +109,53 @@
 })();
 </script>
 
+<!-- Touch drag-and-drop polyfill for mobile -->
+<script>
+(function(){
+  var dragging=null, clone=null, startY=0, startIdx=-1, catId=null;
+  document.addEventListener("touchstart",function(e){
+    var handle=e.target.closest(".drag-handle");
+    if(!handle)return;
+    var row=handle.closest("[draggable]");
+    if(!row)return;
+    e.preventDefault();
+    dragging=row;
+    startY=e.touches[0].clientY;
+    row.classList.add("dragging");
+    // find index among siblings
+    var siblings=Array.from(row.parentNode.children);
+    startIdx=siblings.indexOf(row);
+  },{passive:false});
+  document.addEventListener("touchmove",function(e){
+    if(!dragging)return;
+    e.preventDefault();
+    var y=e.touches[0].clientY;
+    var siblings=Array.from(dragging.parentNode.children).filter(el=>el!==dragging&&el.draggable);
+    siblings.forEach(function(sib){sib.classList.remove("drag-over");});
+    // find which sibling we're over
+    for(var i=0;i<siblings.length;i++){
+      var r=siblings[i].getBoundingClientRect();
+      if(y>=r.top&&y<=r.bottom){ siblings[i].classList.add("drag-over"); break; }
+    }
+  },{passive:false});
+  document.addEventListener("touchend",function(e){
+    if(!dragging)return;
+    var y=e.changedTouches[0].clientY;
+    var siblings=Array.from(dragging.parentNode.children).filter(el=>el!==dragging&&el.draggable);
+    var toIdx=startIdx;
+    for(var i=0;i<siblings.length;i++){
+      var r=siblings[i].getBoundingClientRect();
+      siblings[i].classList.remove("drag-over");
+      if(y>=r.top&&y<=r.bottom){ toIdx=i>=startIdx?i+1:i; break; }
+    }
+    dragging.classList.remove("dragging");
+    // Fire a custom event React can listen to
+    dragging.dispatchEvent(new CustomEvent("touch-drop",{bubbles:true,detail:{fromIdx:startIdx,toIdx:toIdx}}));
+    dragging=null;
+  });
+})();
+</script>
+
 <style>
 :root {
   --bg:       #F2F2F7;
@@ -225,7 +272,11 @@ input[type=checkbox]{accent-color:var(--accent);cursor:pointer;flex-shrink:0}
 /* Bar */
 .bar-fill{height:100%;border-radius:3px;transition:width .55s cubic-bezier(.4,0,.2,1)}
 
-/* Checked state */
+/* Drag handle */
+.drag-handle{cursor:grab;color:var(--text3);font-size:14px;padding:0 4px;flex-shrink:0;user-select:none;line-height:1;touch-action:none}
+.drag-handle:active{cursor:grabbing}
+.drag-over{background:#EEF5FF!important;border-top:2px solid var(--blue)!important}
+.dragging{opacity:.4}
 .packed-row{background:var(--surf2)}
 .packed-name{text-decoration:line-through;color:var(--text3)}
 </style>
@@ -1013,7 +1064,18 @@ function App(){
     if(!mids||!Array.isArray(mids)||!mids.length) return friends;
     return friends.filter(f=>mids.includes(f.id));
   },[activeTrip,friends]);
-  const [invSearch,   setInvSearch]   = useState("");  // global inventory search
+  const [dragState, setDragState] = useState(null); // {catId, fromIdx}
+
+  const reorderItem = (catId, fromIdx, toIdx) => {
+    if(fromIdx===toIdx) return;
+    setInv(p=>p.map(c=>{
+      if(c.id!==catId) return c;
+      const items=[...c.items];
+      const [moved]=items.splice(fromIdx,1);
+      items.splice(toIdx,0,moved);
+      return {...c,items};
+    }));
+  };  // global inventory search
   const [addQuick,    setAddQuick]    = useState(null); // {name,catId,qty} for quick-add from search
 
   // Fuzzy similarity — detects plurals, minor typos, substrings
@@ -1488,35 +1550,56 @@ function App(){
                     </div>
                     {open&&(
                       <>
-                        {cat.items.map((item,itemIdx)=>(
-                          <div key={item.id} className="crow" style={{gap:6}}>
-                            {/* Move up/down */}
-                            <div style={{display:"flex",flexDirection:"column",gap:1,flexShrink:0}}>
-                              <button onClick={()=>moveItem(cat.id,item.id,-1)} disabled={itemIdx===0}
-                                style={{background:"none",border:"none",fontSize:10,lineHeight:1,cursor:"pointer",
-                                  color:itemIdx===0?"var(--border)":"var(--text3)",padding:"1px 3px"}}>▲</button>
-                              <button onClick={()=>moveItem(cat.id,item.id,1)} disabled={itemIdx===cat.items.length-1}
-                                style={{background:"none",border:"none",fontSize:10,lineHeight:1,cursor:"pointer",
-                                  color:itemIdx===cat.items.length-1?"var(--border)":"var(--text3)",padding:"1px 3px"}}>▼</button>
+                        {cat.items.map((item,itemIdx)=>{
+                          const isDragging = dragState?.catId===cat.id && dragState?.fromIdx===itemIdx;
+                          return(
+                            <div key={item.id}
+                              className={`crow${isDragging?" dragging":""}`}
+                              style={{gap:6,cursor:"default"}}
+                              draggable
+                              onDragStart={e=>{
+                                setDragState({catId:cat.id,fromIdx:itemIdx});
+                                e.dataTransfer.effectAllowed="move";
+                              }}
+                              onDragEnd={()=>setDragState(null)}
+                              onDragOver={e=>{
+                                e.preventDefault();
+                                e.currentTarget.classList.add("drag-over");
+                              }}
+                              onDragLeave={e=>e.currentTarget.classList.remove("drag-over")}
+                              onDrop={e=>{
+                                e.preventDefault();
+                                e.currentTarget.classList.remove("drag-over");
+                                if(dragState&&dragState.catId===cat.id)
+                                  reorderItem(cat.id,dragState.fromIdx,itemIdx);
+                                setDragState(null);
+                              }}
+                              onTouchDrop={e=>{
+                                const {fromIdx,toIdx}=e.detail;
+                                if(fromIdx!==toIdx) reorderItem(cat.id,fromIdx,toIdx);
+                              }}
+                            >
+                              {/* Drag handle */}
+                              <span className="drag-handle" title="Drag to reorder">⠿</span>
+                              {/* Editable name */}
+                              <div style={{flex:1,minWidth:0}}>
+                                <InlineEdit value={item.name} onSave={name=>updateItemName(cat.id,item.id,name)}
+                                  style={{fontSize:14,color:"var(--text)"}}/>
+                              </div>
+                              {item.weight&&<span style={{fontSize:12,color:"var(--text3)"}}>{item.weight}</span>}
+                              {/* Qty stepper */}
+                              <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
+                                <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:Math.max(1,i.qty-1)}:i)}:c))}
+                                  style={{width:20,height:20,borderRadius:5,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>−</button>
+                                <span style={{fontSize:13,fontWeight:600,color:"var(--text)",minWidth:18,textAlign:"center"}}>{item.qty}</span>
+                                <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:i.qty+1}:i)}:c))}
+                                  style={{width:20,height:20,borderRadius:5,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>+</button>
+                              </div>
+                              <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer",lineHeight:1,flexShrink:0}}
+                                onClick={()=>delItem(cat.id,item.id)}>×</button>
                             </div>
-                            {/* Editable name */}
-                            <div style={{flex:1,minWidth:0}}>
-                              <InlineEdit value={item.name} onSave={name=>updateItemName(cat.id,item.id,name)}
-                                style={{fontSize:14,color:"var(--text)"}}/>
-                            </div>
-                            {item.weight&&<span style={{fontSize:12,color:"var(--text3)"}}>{item.weight}</span>}
-                            {/* Qty stepper */}
-                            <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
-                              <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:Math.max(1,i.qty-1)}:i)}:c))}
-                                style={{width:20,height:20,borderRadius:5,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>−</button>
-                              <span style={{fontSize:13,fontWeight:600,color:"var(--text)",minWidth:18,textAlign:"center"}}>{item.qty}</span>
-                              <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:i.qty+1}:i)}:c))}
-                                style={{width:20,height:20,borderRadius:5,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>+</button>
-                            </div>
-                            <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer",lineHeight:1,flexShrink:0}}
-                              onClick={()=>delItem(cat.id,item.id)}>×</button>
-                          </div>
-                        ))}
+                          );
+                        })}
                         <div style={{padding:"9px 12px",borderTop:"1px solid var(--border)",background:"var(--surf2)",display:"flex",gap:8}}>
                           <input className="inp" style={{flex:1,fontSize:13,padding:"7px 11px"}} placeholder="Add item…"
                             value={nim[cat.id]||""}
