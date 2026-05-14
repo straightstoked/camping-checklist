@@ -925,6 +925,9 @@ function App(){
   const [tripCatOpen, setTripCatOpen] = useState({}); // {catId: bool} expanded cats in create panel
   const [tripYear,    setTripYear]    = useState(()=>new Date().getFullYear().toString());
   const [tripDates,   setTripDates]   = useState(""); // optional date range string
+  const [dragState,   setDragState]   = useState(null); // {catId, fromIdx}
+  const [invSearch,   setInvSearch]   = useState("");
+  const [addQuick,    setAddQuick]    = useState(null); // {name,catId,qty} for quick-add from search
   const fileRef  = useRef();
   const chatBtm  = useRef();
 
@@ -1064,7 +1067,6 @@ function App(){
     if(!mids||!Array.isArray(mids)||!mids.length) return friends;
     return friends.filter(f=>mids.includes(f.id));
   },[activeTrip,friends]);
-  const [dragState, setDragState] = useState(null); // {catId, fromIdx}
 
   const reorderItem = (catId, fromIdx, toIdx) => {
     if(fromIdx===toIdx) return;
@@ -1075,8 +1077,7 @@ function App(){
       items.splice(toIdx,0,moved);
       return {...c,items};
     }));
-  };  // global inventory search
-  const [addQuick,    setAddQuick]    = useState(null); // {name,catId,qty} for quick-add from search
+  };
 
   // Fuzzy similarity — detects plurals, minor typos, substrings
   const isSimilar = (a, b) => {
