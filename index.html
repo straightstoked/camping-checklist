@@ -497,14 +497,15 @@ function NoteThread({tripId,itemId,notes,myName,fbReady}){
 }
 
 // ── Trip item row ─────────────────────────────────────────────────────────────
-function ItemRow({item,tripId,myName,friends,fbReady}){
+function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
   const u=patch=>fbReady&&fUpd(`trips/${tripId}/items/${item.id}`,patch);
-  // Build the full who's-bringing list: you first, then trip members (excluding you if already in friends)
   const whoList = [
     {id:"__me",name:myName},
     ...friends.filter(f=>f.name!==myName),
   ];
   const assignedName = item.assignedTo || null;
+  // Item is "manually added" if it has no inventoryId (added directly on the trip)
+  const isManual = !item.inventoryId;
   return(
     <div className={item.packed?"packed-row":""} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",transition:"background .18s"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:11}}>
@@ -518,6 +519,18 @@ function ItemRow({item,tripId,myName,friends,fbReady}){
             {!item.packed&&item.needsBuy&&<span className="pill p-orange">🛒 Needs buying</span>}
             {!item.packed&&assignedName&&assignedName!==myName&&<span className="pill p-blue">👤 {assignedName}</span>}
             {!item.packed&&assignedName===myName&&<span className="pill p-green">👤 Me</span>}
+            {/* Lowkey save-to-inventory button for manually added items */}
+            {isManual&&onSaveToInv&&(
+              <button onClick={()=>onSaveToInv(item)}
+                style={{fontSize:10,color:"var(--text3)",background:"none",border:"1px solid var(--border)",
+                  borderRadius:5,padding:"1px 6px",cursor:"pointer",fontWeight:500,lineHeight:1.6,
+                  transition:"all .12s"}}
+                title="Save this item to My Gear inventory"
+                onMouseEnter={e=>{e.currentTarget.style.color="var(--blue)";e.currentTarget.style.borderColor="var(--blue)";}}
+                onMouseLeave={e=>{e.currentTarget.style.color="var(--text3)";e.currentTarget.style.borderColor="var(--border)";}}>
+                + save to gear
+              </button>
+            )}
           </div>
           {item.packed&&item.packedBy&&(
             <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>✓ Packed by {item.packedBy}</div>
@@ -563,6 +576,34 @@ function ItemRow({item,tripId,myName,friends,fbReady}){
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Inline editable text ─────────────────────────────────────────────────────
+function InlineEdit({value,onSave,style={}}){
+  const [editing,setEditing] = useState(false);
+  const [val,setVal]         = useState(value);
+  const inputRef             = useRef();
+  useEffect(()=>{ if(editing && inputRef.current) inputRef.current.select(); },[editing]);
+  const save = ()=>{ const v=val.trim(); if(v&&v!==value) onSave(v); else setVal(value); setEditing(false); };
+  if(editing) return(
+    <input ref={inputRef}
+      style={{...style,background:"var(--surf2)",border:"1.5px solid var(--blue)",
+        borderRadius:6,padding:"2px 7px",outline:"none",width:"100%",
+        boxShadow:"0 0 0 3px rgba(0,122,255,.12)"}}
+      value={val} onChange={e=>setVal(e.target.value)}
+      onBlur={save}
+      onKeyDown={e=>{ if(e.key==="Enter"){e.preventDefault();save();} if(e.key==="Escape"){setVal(value);setEditing(false);} }}/>
+  );
+  return(
+    <span style={{...style,cursor:"text",borderRadius:6,padding:"2px 4px",
+      transition:"background .12s"}}
+      title="Click to edit"
+      onClick={e=>{e.stopPropagation();setEditing(true);}}
+      onMouseEnter={e=>e.currentTarget.style.background="var(--surf2)"}
+      onMouseLeave={e=>e.currentTarget.style.background=""}>
+      {value}
+    </span>
   );
 }
 
@@ -885,6 +926,7 @@ function App(){
   },[]);
 
   const navigate=(newView,newActiveId=null,replace=false)=>{
+    if(newView!=="inventory"){ setInvSearch(""); setAddQuick(null); }
     try {
       const url=new URL(location.href);
       url.searchParams.delete("trip"); url.searchParams.delete("view");
@@ -971,10 +1013,86 @@ function App(){
     if(!mids||!Array.isArray(mids)||!mids.length) return friends;
     return friends.filter(f=>mids.includes(f.id));
   },[activeTrip,friends]);
+  const [invSearch,   setInvSearch]   = useState("");  // global inventory search
+  const [addQuick,    setAddQuick]    = useState(null); // {name,catId,qty} for quick-add from search
+
+  // Fuzzy similarity — detects plurals, minor typos, substrings
+  const isSimilar = (a, b) => {
+    const norm = s => s.toLowerCase().trim().replace(/s$/,""); // strip trailing s for plural
+    const na=norm(a), nb=norm(b);
+    if(na===nb) return true;                          // exact after normalising
+    if(na.includes(nb)||nb.includes(na)) return true; // one contains the other
+    // Levenshtein distance for short strings
+    if(Math.abs(na.length-nb.length)>3) return false;
+    let dp=Array.from({length:nb.length+1},(_,i)=>i);
+    for(let i=1;i<=na.length;i++){
+      let prev=i;
+      for(let j=1;j<=nb.length;j++){
+        const val=na[i-1]===nb[j-1]?dp[j-1]:1+Math.min(dp[j-1],dp[j],prev);
+        dp[j-1]=prev; prev=val;
+      }
+      dp[nb.length]=prev;
+    }
+    return dp[nb.length]<=2; // allow up to 2 edits
+  };
+
   const addCat   = ()=>{ if(!newCat.trim())return; setInv(p=>[...p,{id:gid(),name:newCat.trim(),icon:"📦",items:[]}]); setNewCat(""); setShowAC(false); notify("Category added"); };
   const delCat   = id=>setInv(p=>p.filter(c=>c.id!==id));
-  const addItem  = catId=>{ const n=(nim[catId]||"").trim(); if(!n)return; setInv(p=>p.map(c=>c.id===catId?{...c,items:[...c.items,{id:gid(),name:n,qty:1,weight:""}]}:c)); setNim(p=>({...p,[catId]:""})); notify("Item added"); };
-  const delItem  = (catId,iid)=>setInv(p=>p.map(c=>c.id===catId?{...c,items:c.items.filter(i=>i.id!==iid)}:c));
+  const renameCat = (catId,newName)=>{ if(!newName.trim())return; setInv(p=>p.map(c=>c.id===catId?{...c,name:newName.trim()}:c)); };
+  const addItem  = (catId, overrideName=null)=>{
+    const n=(overrideName||(nim[catId]||"")).trim(); if(!n)return;
+    const cat=inv.find(c=>c.id===catId);
+    const similar=cat&&cat.items.find(i=>isSimilar(i.name,n));
+    if(similar){ if(!confirm(`"${similar.name}" already exists — looks similar to "${n}". Add anyway?`)) return; }
+    setInv(p=>p.map(c=>c.id===catId?{...c,items:[...c.items,{id:gid(),name:n,qty:1,weight:""}]}:c));
+    if(!overrideName) setNim(p=>({...p,[catId]:""}));
+    setAddQuick(null); setInvSearch("");
+    notify("Item added");
+  };
+  const addItemFromQuick = ()=>{
+    if(!addQuick||!addQuick.catId) return;
+    const n=addQuick.name.trim(); if(!n)return;
+    const cat=inv.find(c=>c.id===addQuick.catId);
+    const similar=cat&&cat.items.find(i=>isSimilar(i.name,n));
+    if(similar){ if(!confirm(`"${similar.name}" already exists — looks similar. Add anyway?`)) return; }
+    setInv(p=>p.map(c=>c.id===addQuick.catId?{...c,items:[...c.items,{id:gid(),name:n,qty:addQuick.qty||1,weight:""}]}:c));
+    setAddQuick(null); setInvSearch(""); notify("Item added to inventory");
+  };
+  const delItem        = (catId,iid)=>setInv(p=>p.map(c=>c.id===catId?{...c,items:c.items.filter(i=>i.id!==iid)}:c));
+  const updateItemName = (catId,itemId,name)=>{ if(!name.trim())return; setInv(p=>p.map(c=>c.id===catId?{...c,items:c.items.map(i=>i.id===itemId?{...i,name:name.trim()}:i)}:c)); };
+  const moveItem = (catId,itemId,dir)=>{
+    setInv(p=>p.map(c=>{
+      if(c.id!==catId) return c;
+      const items=[...c.items];
+      const idx=items.findIndex(i=>i.id===itemId);
+      const target=idx+dir;
+      if(target<0||target>=items.length) return c;
+      [items[idx],items[target]]=[items[target],items[idx]];
+      return {...c,items};
+    }));
+  };
+  const saveItemToInventory = (item)=>{
+    const cat=inv.find(c=>c.id===item.catId)||inv[0];
+    if(!cat) return;
+    const similar=cat.items.find(i=>isSimilar(i.name,item.name));
+    if(similar){ notify(`"${similar.name}" already in inventory`); return; }
+    setInv(p=>p.map(c=>c.id===cat.id?{...c,items:[...c.items,{id:gid(),name:item.name,qty:item.qty||1,weight:item.weight||""}]}:c));
+    notify(`"${item.name}" saved to ${cat.name}`);
+  };
+
+  // Inventory search results
+  const invSearchResults = useMemo(()=>{
+    const q=invSearch.trim().toLowerCase();
+    if(!q) return null;
+    const results=[];
+    inv.forEach(cat=>{
+      cat.items.forEach(item=>{
+        if(item.name.toLowerCase().includes(q)||isSimilar(item.name,q))
+          results.push({...item,catId:cat.id,catName:cat.name,catIcon:cat.icon});
+      });
+    });
+    return results;
+  },[invSearch,inv]);
 
   // ── Friends ops (Firebase-backed, shared across all devices) ──
   const addFriend = (name) => {
@@ -1266,7 +1384,7 @@ function App(){
             </div>
 
             {showAC&&(
-              <div className="card" style={{marginBottom:14,padding:14}} className="fi">
+              <div className="card fi" style={{marginBottom:14,padding:14}}>
                 <div style={{display:"flex",gap:8}}>
                   <input className="inp" placeholder="Category name…" value={newCat} autoFocus
                     onChange={e=>setNewCat(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCat()}/>
@@ -1276,35 +1394,126 @@ function App(){
               </div>
             )}
 
+            {/* ── Global search ── */}
+            <div style={{position:"relative",marginBottom:14}}>
+              <input className="inp" placeholder="🔍 Search gear…" value={invSearch}
+                onChange={e=>{ setInvSearch(e.target.value); setAddQuick(null); }}
+                onKeyDown={e=>e.key==="Escape"&&(setInvSearch(""),setAddQuick(null))}/>
+              {invSearch&&(
+                <button onClick={()=>{ setInvSearch(""); setAddQuick(null); }}
+                  style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",
+                    background:"none",border:"none",fontSize:16,color:"var(--text3)",cursor:"pointer",lineHeight:1}}>✕</button>
+              )}
+            </div>
+
+            {/* Search results */}
+            {invSearchResults!==null&&(
+              <div className="card fi" style={{marginBottom:14}}>
+                {invSearchResults.length>0?(
+                  <>
+                    <div style={{padding:"10px 14px 6px",fontSize:11,fontWeight:600,letterSpacing:.7,color:"var(--text3)"}}>
+                      FOUND {invSearchResults.length} ITEM{invSearchResults.length!==1?"S":""}
+                    </div>
+                    {invSearchResults.map(item=>(
+                      <div key={item.id} className="crow">
+                        <span style={{fontSize:12,color:"var(--text3)",flexShrink:0}}>{item.catIcon}</span>
+                        <span style={{flex:1,fontSize:14,color:"var(--text)"}}>{item.name}</span>
+                        <span style={{fontSize:11,color:"var(--text3)",marginRight:8}}>{item.catName}</span>
+                        {item.qty>1&&<span style={{fontSize:12,color:"var(--text3)",marginRight:4}}>×{item.qty}</span>}
+                      </div>
+                    ))}
+                  </>
+                ):(
+                  /* Not found — offer to add */
+                  <div style={{padding:"14px 16px"}}>
+                    <div style={{fontSize:13,color:"var(--text2)",marginBottom:12}}>
+                      <span style={{fontWeight:600,color:"var(--text)"}}>"{invSearch}"</span> not found in your gear.
+                    </div>
+                    {!addQuick?(
+                      <button className="btn btn-blue btn-sm"
+                        onClick={()=>setAddQuick({name:invSearch,catId:inv[0]?.id||"",qty:1})}>
+                        + Add to inventory
+                      </button>
+                    ):(
+                      <div style={{display:"flex",flexDirection:"column",gap:10}} className="fi">
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                          {/* Category picker */}
+                          <select className="inp" style={{flex:2,minWidth:140,padding:"8px 10px"}}
+                            value={addQuick.catId}
+                            onChange={e=>setAddQuick(p=>({...p,catId:e.target.value}))}>
+                            {inv.map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                          </select>
+                          {/* Quantity */}
+                          <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                            <button onClick={()=>setAddQuick(p=>({...p,qty:Math.max(1,(p.qty||1)-1)}))}
+                              style={{width:28,height:36,borderRadius:7,border:"1px solid var(--border)",
+                                background:"var(--surf2)",fontSize:16,cursor:"pointer",color:"var(--text2)"}}>−</button>
+                            <span style={{fontSize:14,fontWeight:600,minWidth:28,textAlign:"center"}}>{addQuick.qty||1}</span>
+                            <button onClick={()=>setAddQuick(p=>({...p,qty:(p.qty||1)+1}))}
+                              style={{width:28,height:36,borderRadius:7,border:"1px solid var(--border)",
+                                background:"var(--surf2)",fontSize:16,cursor:"pointer",color:"var(--text2)"}}>+</button>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:8}}>
+                          <button className="btn btn-green btn-sm" onClick={addItemFromQuick}>
+                            ✓ Add "{addQuick.name}"
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={()=>setAddQuick(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="slabel">CATEGORIES</div>
             <div style={{display:"flex",flexDirection:"column",gap:10}} className="stagger">
-              {inv.map(cat=>{
+              {inv.map((cat,catIdx)=>{
                 const open=expCats[cat.id]!==false;
                 return(
                   <div key={cat.id} className="card fi">
-                    <div style={{display:"flex",alignItems:"center",padding:"13px 16px",cursor:"pointer",gap:10}}
-                      onClick={()=>setExpCats(p=>({...p,[cat.id]:!open}))}>
-                      <span style={{fontSize:18}}>{cat.icon}</span>
-                      <span style={{flex:1,fontSize:15,fontWeight:600}}>{cat.name}</span>
-                      <span style={{fontSize:12,color:"var(--text3)"}}>{cat.items.length}</span>
-                      <span style={{fontSize:11,color:"var(--text3)",marginLeft:4}}>{open?"▲":"▼"}</span>
-                      <button style={{background:"none",border:"none",color:"var(--danger)",fontSize:17,cursor:"pointer",lineHeight:1,marginLeft:6}}
+                    {/* Category header with inline rename */}
+                    <div style={{display:"flex",alignItems:"center",padding:"13px 16px",gap:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flex:1,cursor:"pointer",minWidth:0}}
+                        onClick={()=>setExpCats(p=>({...p,[cat.id]:!open}))}>
+                        <span style={{fontSize:18,flexShrink:0}}>{cat.icon}</span>
+                        <InlineEdit value={cat.name} onSave={name=>renameCat(cat.id,name)}
+                          style={{fontSize:15,fontWeight:600,color:"var(--text)"}}/>
+                        <span style={{fontSize:12,color:"var(--text3)",flexShrink:0,marginLeft:4}}>{cat.items.length}</span>
+                        <span style={{fontSize:11,color:"var(--text3)",marginLeft:2,flexShrink:0}}>{open?"▲":"▼"}</span>
+                      </div>
+                      <button style={{background:"none",border:"none",color:"var(--danger)",fontSize:17,cursor:"pointer",lineHeight:1,flexShrink:0}}
                         onClick={e=>{e.stopPropagation();if(confirm(`Delete "${cat.name}"?`))delCat(cat.id);}}>×</button>
                     </div>
                     {open&&(
                       <>
-                        {cat.items.map(item=>(
-                          <div key={item.id} className="crow">
-                            <span style={{flex:1,fontSize:14}}>{item.name}</span>
-                            {item.weight&&<span style={{fontSize:12,color:"var(--text3)",marginRight:4}}>{item.weight}</span>}
-                            <div style={{display:"flex",alignItems:"center",gap:4,marginRight:8}}>
-                              <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:Math.max(1,i.qty-1)}:i)}:c))}
-                                style={{width:22,height:22,borderRadius:6,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:14,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>−</button>
-                              <span style={{fontSize:13,fontWeight:600,color:"var(--text)",minWidth:20,textAlign:"center"}}>{item.qty}</span>
-                              <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:i.qty+1}:i)}:c))}
-                                style={{width:22,height:22,borderRadius:6,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:14,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>+</button>
+                        {cat.items.map((item,itemIdx)=>(
+                          <div key={item.id} className="crow" style={{gap:6}}>
+                            {/* Move up/down */}
+                            <div style={{display:"flex",flexDirection:"column",gap:1,flexShrink:0}}>
+                              <button onClick={()=>moveItem(cat.id,item.id,-1)} disabled={itemIdx===0}
+                                style={{background:"none",border:"none",fontSize:10,lineHeight:1,cursor:"pointer",
+                                  color:itemIdx===0?"var(--border)":"var(--text3)",padding:"1px 3px"}}>▲</button>
+                              <button onClick={()=>moveItem(cat.id,item.id,1)} disabled={itemIdx===cat.items.length-1}
+                                style={{background:"none",border:"none",fontSize:10,lineHeight:1,cursor:"pointer",
+                                  color:itemIdx===cat.items.length-1?"var(--border)":"var(--text3)",padding:"1px 3px"}}>▼</button>
                             </div>
-                            <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer",lineHeight:1}}
+                            {/* Editable name */}
+                            <div style={{flex:1,minWidth:0}}>
+                              <InlineEdit value={item.name} onSave={name=>updateItemName(cat.id,item.id,name)}
+                                style={{fontSize:14,color:"var(--text)"}}/>
+                            </div>
+                            {item.weight&&<span style={{fontSize:12,color:"var(--text3)"}}>{item.weight}</span>}
+                            {/* Qty stepper */}
+                            <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
+                              <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:Math.max(1,i.qty-1)}:i)}:c))}
+                                style={{width:20,height:20,borderRadius:5,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>−</button>
+                              <span style={{fontSize:13,fontWeight:600,color:"var(--text)",minWidth:18,textAlign:"center"}}>{item.qty}</span>
+                              <button onClick={()=>setInv(p=>p.map(c=>c.id===cat.id?{...c,items:c.items.map(i=>i.id===item.id?{...i,qty:i.qty+1}:i)}:c))}
+                                style={{width:20,height:20,borderRadius:5,border:"1px solid var(--border)",background:"var(--surf2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text2)",flexShrink:0}}>+</button>
+                            </div>
+                            <button style={{background:"none",border:"none",color:"var(--text3)",fontSize:17,cursor:"pointer",lineHeight:1,flexShrink:0}}
                               onClick={()=>delItem(cat.id,item.id)}>×</button>
                           </div>
                         ))}
@@ -1865,7 +2074,8 @@ function App(){
                       <>
                         {items.map(item=>(
                           <ItemRow key={item.id} item={item} tripId={activeTrip.id}
-                            myName={myName} friends={tripFriends} fbReady={fbReady}/>
+                            myName={myName} friends={tripFriends} fbReady={fbReady}
+                            onSaveToInv={saveItemToInventory}/>
                         ))}
                         <div style={{padding:"9px 12px",borderTop:"1px solid var(--border)",background:"var(--surf2)",display:"flex",gap:8}}>
                           <input className="inp" style={{flex:1,fontSize:13,padding:"7px 11px"}} placeholder="Add item to trip…"
