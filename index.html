@@ -553,16 +553,17 @@ function NoteThread({tripId,itemId,notes,myName,fbReady}){
 // ── Trip item row ─────────────────────────────────────────────────────────────
 function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
   const u=patch=>fbReady&&fUpd(`trips/${tripId}/items/${item.id}`,patch);
+  const [pickerOpen,setPickerOpen]=useState(false);
 
-  // assignedTo is now an array of names; support legacy string format too
   const assigned = useMemo(()=>{
     if(!item.assignedTo) return [];
     if(Array.isArray(item.assignedTo)) return item.assignedTo;
-    return [item.assignedTo]; // legacy string → wrap in array
+    return [item.assignedTo];
   },[item.assignedTo]);
 
   const whoList = [{id:"__me",name:myName},...friends.filter(f=>f.name!==myName)];
   const isManual = !item.inventoryId;
+  const qty = item.qty||1;
 
   const togglePerson = (name)=>{
     const next = assigned.includes(name)
@@ -571,52 +572,49 @@ function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
     u({assignedTo:next, someoneElse:next.length>0&&!next.includes(myName)});
   };
 
-  const qty = item.qty||1;
+  // Compact label for who's assigned
+  const assignedLabel = assigned.length===0
+    ? "— unassigned"
+    : assigned.map(n=>n===myName?"Me":n).join(", ");
 
   return(
-    <div className={item.packed?"packed-row":""} style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",transition:"background .18s"}}>
+    <div className={item.packed?"packed-row":""} style={{padding:"10px 16px",borderBottom:"1px solid var(--border)",transition:"background .18s"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:11}}>
-        <input type="checkbox" checked={!!item.packed} style={{width:18,height:18,marginTop:2}}
+        <input type="checkbox" checked={!!item.packed} style={{width:18,height:18,marginTop:3}}
           onChange={e=>u({packed:e.target.checked,
             packedBy:e.target.checked?(assigned.length>0?assigned.join(" & "):myName):null,
             packedAt:e.target.checked?ts():null})}/>
         <div style={{flex:1,minWidth:0}}>
 
-          {/* ── Name + qty row ── */}
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+          {/* ── Name + qty + badges row ── */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             <span className={item.packed?"packed-name":""}
-              style={{fontSize:15,fontWeight:600,color:"var(--text)"}}>{item.name}</span>
+              style={{fontSize:14,fontWeight:600,color:"var(--text)"}}>{item.name}</span>
 
-            {/* Quantity stepper — bigger & bolder */}
             {!item.packed?(
-              <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--surf2)",
-                borderRadius:8,border:"1px solid var(--border)",padding:"2px 6px",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:3,background:"var(--surf2)",
+                borderRadius:7,border:"1px solid var(--border)",padding:"1px 5px",flexShrink:0}}>
                 <button onClick={()=>u({qty:Math.max(1,qty-1)})}
-                  style={{width:20,height:20,borderRadius:5,border:"none",background:"transparent",
-                    fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",
+                  style={{width:18,height:18,border:"none",background:"transparent",
+                    fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",
                     justifyContent:"center",color:"var(--text2)",fontWeight:700,lineHeight:1}}>−</button>
-                <span style={{fontSize:15,fontWeight:700,color:"var(--text)",
-                  minWidth:22,textAlign:"center",letterSpacing:-.3}}>
-                  {qty}
-                </span>
+                <span style={{fontSize:14,fontWeight:700,color:"var(--text)",minWidth:18,textAlign:"center"}}>{qty}</span>
                 <button onClick={()=>u({qty:qty+1})}
-                  style={{width:20,height:20,borderRadius:5,border:"none",background:"transparent",
-                    fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",
+                  style={{width:18,height:18,border:"none",background:"transparent",
+                    fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",
                     justifyContent:"center",color:"var(--text2)",fontWeight:700,lineHeight:1}}>+</button>
               </div>
             ):(
-              qty>1&&<span style={{fontSize:13,fontWeight:600,color:"var(--text3)"}}>×{qty}</span>
+              qty>1&&<span style={{fontSize:12,fontWeight:600,color:"var(--text3)"}}>×{qty}</span>
             )}
 
             {item.weight&&<span className="pill p-gray" style={{fontSize:11}}>{item.weight}</span>}
-            {!item.packed&&item.needsBuy&&<span className="pill p-orange">🛒 Needs buying</span>}
+            {!item.packed&&item.needsBuy&&<span className="pill p-orange">🛒</span>}
 
-            {/* Save to gear — lowkey */}
             {isManual&&onSaveToInv&&(
               <button onClick={()=>onSaveToInv(item)}
                 style={{fontSize:10,color:"var(--text3)",background:"none",border:"1px solid var(--border)",
                   borderRadius:5,padding:"1px 6px",cursor:"pointer",fontWeight:500,lineHeight:1.6,transition:"all .12s"}}
-                title="Save this item to My Gear inventory"
                 onMouseEnter={e=>{e.currentTarget.style.color="var(--blue)";e.currentTarget.style.borderColor="var(--blue)";}}
                 onMouseLeave={e=>{e.currentTarget.style.color="var(--text3)";e.currentTarget.style.borderColor="var(--border)";}}>
                 + save to gear
@@ -624,63 +622,71 @@ function ItemRow({item,tripId,myName,friends,fbReady,onSaveToInv}){
             )}
           </div>
 
-          {/* ── Assigned chips (always visible when assigned) ── */}
-          {assigned.length>0&&(
-            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
-              {assigned.map(name=>(
-                <span key={name} style={{display:"flex",alignItems:"center",gap:4,
-                  background:name===myName?"#D1FAE5":"#EEF5FF",
-                  borderRadius:20,padding:"3px 10px 3px 5px",
-                  fontSize:12,fontWeight:500,
-                  color:name===myName?"#065F46":"var(--blue)"}}>
-                  <Av name={name} size={16}/>
-                  {name===myName?"Me":name}
-                  {!item.packed&&(
-                    <button onClick={()=>togglePerson(name)}
-                      style={{background:"none",border:"none",cursor:"pointer",
-                        fontSize:13,lineHeight:1,color:"inherit",opacity:.6,
-                        padding:"0 0 0 2px",marginLeft:2}}>×</button>
-                  )}
-                </span>
-              ))}
-            </div>
-          )}
-
           {/* ── Packed by ── */}
           {item.packed&&item.packedBy&&(
-            <div style={{fontSize:11,color:"var(--text3)",marginBottom:4}}>✓ Packed by {item.packedBy}</div>
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>✓ Packed by {item.packedBy}</div>
           )}
 
-          {/* ── Controls when unpacked ── */}
+          {/* ── Controls row — thin single line ── */}
           {!item.packed&&(
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {/* Who's bringing — chip picker */}
+            <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:5}}>
+
+              {/* Who's bringing — compact tappable row */}
               <div>
-                <div style={{fontSize:11,color:"var(--text2)",fontWeight:500,marginBottom:5}}>Who's bringing:</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                  {whoList.map(p=>{
-                    const sel=assigned.includes(p.name);
-                    return(
-                      <button key={p.id} onClick={()=>togglePerson(p.name)}
-                        style={{display:"flex",alignItems:"center",gap:5,
-                          padding:"4px 10px 4px 6px",borderRadius:20,
-                          border:`1.5px solid ${sel?(p.name===myName?"#34C759":"var(--blue)"):"var(--border)"}`,
-                          background:sel?(p.name===myName?"#D1FAE5":"#EEF5FF"):"transparent",
-                          color:sel?(p.name===myName?"#065F46":"var(--blue)"):"var(--text3)",
-                          cursor:"pointer",fontSize:12,fontWeight:500,transition:"all .12s"}}>
-                        <Av name={p.name} size={16}/>
-                        {p.name===myName?"Me":p.name}
-                        {sel&&<span style={{fontSize:10,marginLeft:1}}>✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
+                <button onClick={()=>setPickerOpen(p=>!p)}
+                  style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",
+                    cursor:"pointer",padding:0,width:"100%",textAlign:"left"}}>
+                  <span style={{fontSize:11,color:"var(--text3)",flexShrink:0}}>👤</span>
+                  <span style={{fontSize:12,color:assigned.length>0?"var(--text2)":"var(--text3)",
+                    flex:1,fontStyle:assigned.length===0?"italic":"normal"}}>
+                    {assignedLabel}
+                  </span>
+                  {/* Inline avatar dots for quick visual */}
+                  {assigned.length>0&&(
+                    <span style={{display:"flex",gap:2,flexShrink:0}}>
+                      {assigned.slice(0,3).map(n=>(
+                        <Av key={n} name={n} size={16}/>
+                      ))}
+                      {assigned.length>3&&<span style={{fontSize:10,color:"var(--text3)",alignSelf:"center"}}>+{assigned.length-3}</span>}
+                    </span>
+                  )}
+                  <span style={{fontSize:10,color:"var(--text3)",marginLeft:4}}>{pickerOpen?"▲":"▼"}</span>
+                </button>
+
+                {/* Expanded picker */}
+                {pickerOpen&&(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:7,
+                    padding:"8px 10px",background:"var(--surf2)",borderRadius:8}} className="fi">
+                    {whoList.map(p=>{
+                      const sel=assigned.includes(p.name);
+                      return(
+                        <button key={p.id} onClick={()=>togglePerson(p.name)}
+                          style={{display:"flex",alignItems:"center",gap:4,
+                            padding:"4px 10px 4px 5px",borderRadius:20,
+                            border:`1.5px solid ${sel?(p.name===myName?"#34C759":"var(--blue)"):"var(--border)"}`,
+                            background:sel?(p.name===myName?"#D1FAE5":"#EEF5FF"):"var(--surface)",
+                            color:sel?(p.name===myName?"#065F46":"var(--blue)"):"var(--text2)",
+                            cursor:"pointer",fontSize:12,fontWeight:500,transition:"all .12s"}}>
+                          <Av name={p.name} size={15}/>
+                          {p.name===myName?"Me":p.name}
+                          {sel&&<span style={{fontSize:9,marginLeft:1}}>✓</span>}
+                        </button>
+                      );
+                    })}
+                    <button onClick={()=>setPickerOpen(false)}
+                      style={{marginLeft:"auto",fontSize:11,color:"var(--blue)",background:"none",
+                        border:"none",cursor:"pointer",fontWeight:500,padding:"4px 6px"}}>
+                      Done
+                    </button>
+                  </div>
+                )}
               </div>
+
               {/* Needs buying */}
               <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-                <input type="checkbox" checked={!!item.needsBuy} style={{width:14,height:14,accentColor:"var(--warn)"}}
+                <input type="checkbox" checked={!!item.needsBuy} style={{width:13,height:13,accentColor:"var(--warn)"}}
                   onChange={e=>u({needsBuy:e.target.checked})}/>
-                <span style={{fontSize:12,color:"var(--text2)"}}>🛒 Needs buying</span>
+                <span style={{fontSize:11,color:"var(--text2)"}}>🛒 Needs buying</span>
               </label>
             </div>
           )}
